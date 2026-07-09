@@ -59,6 +59,11 @@ Se recomienda el uso de un entorno virtual de Python (`venv`) para evitar confli
         python -m venv .venv
         .venv\Scripts\Activate.ps1
         ```
+    * **Desactivar el entorno virtual:**
+        Para salir/desactivar el entorno virtual en cualquier sistema, ejecuta:
+        ```bash
+        deactivate
+        ```
 
 3. **Instalar dependencias**:
     El archivo `requirements.txt` incluye la instalación en modo editable de la librería local `o2despy` (`-e ./o2despy`), además de dependencias como `pandas`, `numpy`, `loguru` y `pytest`:
