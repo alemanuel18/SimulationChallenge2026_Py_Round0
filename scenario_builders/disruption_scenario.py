@@ -7,15 +7,7 @@ from .baseline_stable_scenario import BaselineStableScenario
 
 CONGESTED_LEGS = [
     # Format: (departure port, arrival port, start day, duration days, multiplier)
-
-    # ("Shanghai", "Shenzhen", 50.0, 80.0, 20.0),
-    # ("Busan", "Qingdao", 50.0, 80.0, 20.0),
-    # ("Shanghai", "Kaohsiung", 50.0, 80.0, 20.0),
-    # ("Colombo", "New Jersey", 50.0, 80.0, 20.0),
-    # ("Tanger Med", "Piraeus", 20.0, 15.0, 20.0),
-    # ("Shanghai", "Shenzhen", 20.0, 7.0, 6.0),
-    # ("Shenzhen", "Singapore", 20.0, 7.0, 6.0),
-    # ("Shenzhen", "Kaohsiung", 20.0, 6.0, 4.0),
+    ("New Jersey", "Cartagena", 120.0, 30.0, 3.0),
     ("Shanghai", "Kaohsiung", 60.0, 20.0, 5.0),
     ("Kaohsiung", "Busan", 60.0, 18.0, 4.0),
     ("Kaohsiung", "Los Angeles", 60.0, 20.0, 5.0),
@@ -24,9 +16,7 @@ CONGESTED_LEGS = [
 
 CLOSED_PORTS = [
     # Format: (port, start day, duration days)
-    # ("Piraeus", 20.0, 14.0),
-    # ("Jebel Ali", 50.0, 70.0),
-    # ("Shenzhen", 20.0, 4.0),
+    ("Cartagena", 125.0, 14.0),
     ("Kaohsiung", 60.0, 14.0),
 ]
  
