@@ -1,6 +1,4 @@
 """Contestant and fallback response strategies."""
 
-from .default_strategy import DefaultStrategy
-from .user_strategy import UserStrategy
-
-__all__ = ["DefaultStrategy", "UserStrategy"]
+# Keep this package initializer lightweight to avoid import cycles during
+# strategy loading. Import concrete classes from their modules directly.

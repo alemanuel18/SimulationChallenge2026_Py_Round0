@@ -9,6 +9,7 @@ implemented as part of ``adjust_bookings_before_cargo_handling`` so route and
 vessel changes are decided together with shipment booking changes.
 """
 
+from .expected_time import assign_associated_bookings_by_expected_sailing_time
 
 class UserStrategy:
     @staticmethod
@@ -77,7 +78,9 @@ class UserStrategy:
         instead be incorporated into ``adjust_bookings_before_cargo_handling``
         when a combined shipping-line and cargo-owner decision is preferred.
         """
-        return None
+        # E1 keeps dynamic rerouting disabled so the experiment is isolated to
+        # shipment routing only.
+        return False
 
     @staticmethod
     def assign_associated_bookings(context, now, shipment):
@@ -107,7 +110,9 @@ class UserStrategy:
             Return ``False`` when no booking can currently be assigned; the
             simulation may keep the shipment waiting and retry later.
         """
-        return None
+        return assign_associated_bookings_by_expected_sailing_time(
+            context, now, shipment
+        )
 
     @staticmethod
     def adjust_bookings_before_cargo_handling(context, now, vessel):
@@ -138,4 +143,5 @@ class UserStrategy:
         bool
             Return ``True`` after updating the affected booking chains.
         """
-        return None
+        # E1 does not enable in-transit rerouting.
+        return False
