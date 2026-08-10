@@ -1,4 +1,4 @@
-"""Expected sailing-time routing for E1."""
+"""Expected sailing-time routing for E2."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from maritime_data_context import Booking
 
 from typing import Optional
 
+from .strategy_parameters import ENABLE_INITIAL_WAIT
 from .routing import (
     build_feasible_candidate_bookings,
     build_path_signature,
@@ -16,6 +17,7 @@ from .routing import (
     expected_sailing_hours,
     remove_bookings_from_service_routes,
     shortest_booking_path,
+    _get_service_route_speed_knots,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,7 +29,7 @@ _DEBUG_SAMPLES_SEEN = 0
 def assign_associated_bookings_by_expected_sailing_time(
     context, now, shipment
 ) -> Optional[bool]:
-    """Assign the initial booking chain using expected sailing time only.
+    """Assign the initial booking chain using expected sailing time.
 
     Returns:
         True when a time-optimal feasible booking chain was assigned.
@@ -51,12 +53,20 @@ def assign_associated_bookings_by_expected_sailing_time(
     if not candidate_bookings:
         return None
 
+    origin_cost_fn = None
+    if ENABLE_INITIAL_WAIT:
+        origin_cost_fn = lambda edge: (
+            estimate_service_wait_hours(edge.service_route)
+            + expected_sailing_hours(edge)
+        )
+
     time_path = shortest_booking_path(
         context,
         origin_port,
         destination_port,
         candidate_bookings,
         expected_sailing_hours,
+        origin_cost_fn=origin_cost_fn,
     )
     if not time_path:
         return None
@@ -89,6 +99,41 @@ def _materialize_booking_chain(shipment, path) -> None:
     shipment.current_booking_index = 1 if shipment.associated_bookings else None
 
 
+def estimate_route_cycle_hours(service_route) -> float:
+    """Estimate one full sailing cycle using current service-route state."""
+    route_speed_knots = _get_service_route_speed_knots(service_route)
+    if route_speed_knots <= 0:
+        return math.inf
+
+    total_hours = 0.0
+    for segment in sorted(service_route.segments, key=lambda item: item.sequence_index):
+        leg = segment.associated_leg
+        if leg is None:
+            return math.inf
+        total_hours += (leg.sailing_distance / route_speed_knots) * leg.sailing_time_multiplier
+    return total_hours
+
+
+def estimate_headway_hours(service_route) -> float:
+    """Estimate expected departure headway from the current deployed vessel count."""
+    vessel_count = len(getattr(service_route, "deployed_vessels", None) or [])
+    if vessel_count <= 0:
+        return math.inf
+
+    cycle_hours = estimate_route_cycle_hours(service_route)
+    if not math.isfinite(cycle_hours):
+        return math.inf
+    return cycle_hours / vessel_count
+
+
+def estimate_service_wait_hours(service_route) -> float:
+    """Estimate expected initial waiting time for the first service route only."""
+    headway_hours = estimate_headway_hours(service_route)
+    if not math.isfinite(headway_hours):
+        return math.inf
+    return headway_hours / 2.0
+
+
 def _maybe_log_distance_comparison(
     context,
     shipment,
@@ -116,13 +161,13 @@ def _maybe_log_distance_comparison(
     distance_signature = build_path_signature(distance_path)
     if time_signature == distance_signature:
         logger.debug(
-            "E1 routing shipment=%s distance path == sailing-time path: %s",
+            "E2 routing shipment=%s distance path == sailing-time path: %s",
             getattr(shipment, "index", "?"),
             time_signature,
         )
     else:
         logger.debug(
-            "E1 routing shipment=%s distance path=%s sailing-time path=%s",
+            "E2 routing shipment=%s distance path=%s sailing-time path=%s",
             getattr(shipment, "index", "?"),
             distance_signature,
             time_signature,

@@ -28,7 +28,6 @@ class RouteSpan:
     departure_segment_index: int
     arrival_segment_index: int
     sailing_distance_nm: float
-    route_speed_knots: float
     traversed_segments: tuple[object, ...]
     traversed_ports: tuple[object, ...]
 
@@ -48,10 +47,6 @@ def build_feasible_candidate_bookings(context, now) -> list[RouteSpan]:
     for route in _get_route_spans(context):
         if not _route_is_available_for_booking(route.service_route, disruption_key):
             continue
-
-        if route.route_speed_knots <= 0:
-            continue
-
         spans.append(route)
 
     return spans
@@ -63,6 +58,7 @@ def shortest_booking_path(
     destination_port,
     candidate_bookings: Iterable[RouteSpan],
     cost_fn: Callable[[RouteSpan], float],
+    origin_cost_fn: Optional[Callable[[RouteSpan], float]] = None,
 ) -> Optional[list[RouteSpan]]:
     """Return the minimum-cost port path using Dijkstra over candidate bookings."""
     outgoing: dict[object, list[RouteSpan]] = {}
@@ -86,7 +82,12 @@ def shortest_booking_path(
 
         for edge in outgoing.get(current_port, []):
             next_port = edge.arrival_port
-            alternative = current_distance + cost_fn(edge)
+            step_cost = (
+                origin_cost_fn(edge)
+                if origin_cost_fn is not None and current_port is origin_port
+                else cost_fn(edge)
+            )
+            alternative = current_distance + step_cost
             if alternative < distances.get(next_port, math.inf):
                 distances[next_port] = alternative
                 previous_edge[next_port] = edge
@@ -119,13 +120,16 @@ def remove_bookings_from_service_routes(bookings) -> None:
 
 def expected_sailing_hours(edge: RouteSpan) -> float:
     """Expected sailing time in simulator hours for one candidate booking edge."""
+    route_speed_knots = _get_service_route_speed_knots(edge.service_route)
+    if route_speed_knots <= 0:
+        return math.inf
     total_hours = 0.0
     for segment in edge.traversed_segments:
         leg = segment.associated_leg
         if leg is None:
             return math.inf
         total_hours += (
-            leg.sailing_distance / edge.route_speed_knots
+            leg.sailing_distance / route_speed_knots
         ) * leg.sailing_time_multiplier
     return total_hours
 
@@ -158,7 +162,6 @@ def _get_route_spans(context) -> tuple[RouteSpan, ...]:
 
     spans: list[RouteSpan] = []
     for service_route in context.service_routes:
-        route_speed_knots = _get_service_route_speed_knots(service_route)
         segments = sorted(
             service_route.segments, key=lambda segment: segment.sequence_index
         )
@@ -195,7 +198,6 @@ def _get_route_spans(context) -> tuple[RouteSpan, ...]:
                         departure_segment_index=start_index + 1,
                         arrival_segment_index=segment_index + 1,
                         sailing_distance_nm=cumulative_distance,
-                        route_speed_knots=route_speed_knots,
                         traversed_segments=tuple(traversed_segments),
                         traversed_ports=tuple(traversed_ports),
                     )
