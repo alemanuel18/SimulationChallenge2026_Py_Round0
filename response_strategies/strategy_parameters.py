@@ -1,17 +1,61 @@
 """Simple experiment switches for response-strategy experiments.
 
-Keep these flags lightweight so E1/E2/E3 can be toggled without touching the
-simulator or the default strategy implementation.
+Select one experiment explicitly and derive the individual flags from it.
+This keeps E1/E2/E3/E4 configuration consistent without touching routing
+behavior.
 """
 
-ENABLE_INITIAL_WAIT = True
-ENABLE_TRANSFER_COST = True
-ENABLE_DYNAMIC_REROUTING = True
+EXPERIMENT = "E4"
 MIN_REROUTE_SAVING_HOURS = 24.0
+
+ENABLE_INITIAL_WAIT = False
+ENABLE_TRANSFER_COST = False
+ENABLE_DYNAMIC_REROUTING = False
+
+_VALID_EXPERIMENTS = {"E1", "E2", "E3", "E4"}
+
+
+def configure_experiment(experiment: str | None = None) -> None:
+    """Derive the routing flags from one explicit experiment selector."""
+    global EXPERIMENT
+    global ENABLE_INITIAL_WAIT
+    global ENABLE_TRANSFER_COST
+    global ENABLE_DYNAMIC_REROUTING
+
+    if experiment is not None:
+        EXPERIMENT = experiment
+
+    if EXPERIMENT not in _VALID_EXPERIMENTS:
+        raise ValueError(
+            f"Unsupported EXPERIMENT={EXPERIMENT!r}. Expected one of: "
+            + ", ".join(sorted(_VALID_EXPERIMENTS))
+        )
+
+    if EXPERIMENT == "E1":
+        ENABLE_INITIAL_WAIT = False
+        ENABLE_TRANSFER_COST = False
+        ENABLE_DYNAMIC_REROUTING = False
+    elif EXPERIMENT == "E2":
+        ENABLE_INITIAL_WAIT = True
+        ENABLE_TRANSFER_COST = False
+        ENABLE_DYNAMIC_REROUTING = False
+    elif EXPERIMENT == "E3":
+        ENABLE_INITIAL_WAIT = True
+        ENABLE_TRANSFER_COST = True
+        ENABLE_DYNAMIC_REROUTING = False
+    elif EXPERIMENT == "E4":
+        ENABLE_INITIAL_WAIT = True
+        ENABLE_TRANSFER_COST = True
+        ENABLE_DYNAMIC_REROUTING = True
 
 
 def validate_wait_configuration() -> None:
-    """Reject ambiguous wait-setting combinations early."""
+    """Reject invalid experiment settings early."""
+    if EXPERIMENT not in _VALID_EXPERIMENTS:
+        raise ValueError(
+            f"Unsupported EXPERIMENT={EXPERIMENT!r}. Expected one of: "
+            + ", ".join(sorted(_VALID_EXPERIMENTS))
+        )
     if ENABLE_TRANSFER_COST and not ENABLE_INITIAL_WAIT:
         raise ValueError(
             "ENABLE_TRANSFER_COST requires ENABLE_INITIAL_WAIT so transfer waits "
@@ -22,3 +66,6 @@ def validate_wait_configuration() -> None:
             "ENABLE_DYNAMIC_REROUTING requires E3 routing semantics "
             "(ENABLE_INITIAL_WAIT and ENABLE_TRANSFER_COST both enabled)."
         )
+
+
+configure_experiment()
