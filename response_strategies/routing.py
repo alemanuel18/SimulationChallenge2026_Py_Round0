@@ -57,53 +57,56 @@ def shortest_booking_path(
     origin_port,
     destination_port,
     candidate_bookings: Iterable[RouteSpan],
-    cost_fn: Callable[[RouteSpan], float],
-    origin_cost_fn: Optional[Callable[[RouteSpan], float]] = None,
+    transition_cost_fn: Callable[[object, RouteSpan], float],
 ) -> Optional[list[RouteSpan]]:
-    """Return the minimum-cost port path using Dijkstra over candidate bookings."""
+    """Return the minimum-cost booking path using Dijkstra over route-aware state."""
     outgoing: dict[object, list[RouteSpan]] = {}
     for edge in candidate_bookings:
         outgoing.setdefault(edge.departure_port, []).append(edge)
 
-    distances = {port: math.inf for port in context.ports}
-    previous_edge: dict[object, RouteSpan] = {}
-    heap: list[tuple[float, int, object]] = []
+    start_state = (origin_port, None)
+    distances = {start_state: 0.0}
+    previous_edge: dict[tuple[object, object], RouteSpan] = {}
+    previous_state: dict[tuple[object, object], tuple[object, object]] = {}
+    heap: list[tuple[float, int, tuple[object, object]]] = []
     push_order = count()
 
-    distances[origin_port] = 0.0
-    heapq.heappush(heap, (0.0, next(push_order), origin_port))
+    heapq.heappush(heap, (0.0, next(push_order), start_state))
 
+    destination_state = None
     while heap:
-        current_distance, _, current_port = heapq.heappop(heap)
-        if current_distance != distances.get(current_port):
+        current_distance, _, current_state = heapq.heappop(heap)
+        if current_distance != distances.get(current_state):
             continue
+        current_port, current_route = current_state
         if current_port is destination_port:
+            destination_state = current_state
             break
 
         for edge in outgoing.get(current_port, []):
             next_port = edge.arrival_port
-            step_cost = (
-                origin_cost_fn(edge)
-                if origin_cost_fn is not None and current_port is origin_port
-                else cost_fn(edge)
-            )
+            next_state = (next_port, edge.service_route)
+            step_cost = transition_cost_fn(current_route, edge)
             alternative = current_distance + step_cost
-            if alternative < distances.get(next_port, math.inf):
-                distances[next_port] = alternative
-                previous_edge[next_port] = edge
-                heapq.heappush(heap, (alternative, next(push_order), next_port))
+            if alternative < distances.get(next_state, math.inf):
+                distances[next_state] = alternative
+                previous_edge[next_state] = edge
+                previous_state[next_state] = current_state
+                heapq.heappush(heap, (alternative, next(push_order), next_state))
 
-    if destination_port not in previous_edge:
+    if destination_state is None:
         return None
 
     path: list[RouteSpan] = []
-    cursor = destination_port
-    while cursor is not origin_port:
+    cursor = destination_state
+    while cursor != start_state:
         edge = previous_edge.get(cursor)
         if edge is None:
             return None
         path.append(edge)
-        cursor = edge.departure_port
+        cursor = previous_state.get(cursor)
+        if cursor is None:
+            return None
     path.reverse()
     return path
 
@@ -136,6 +139,11 @@ def expected_sailing_hours(edge: RouteSpan) -> float:
 
 def distance_cost(edge: RouteSpan) -> float:
     """Distance-only cost used for diagnostics."""
+    return edge.sailing_distance_nm
+
+
+def distance_transition_cost(previous_route, edge: RouteSpan) -> float:
+    """Distance-only transition cost used for diagnostics and comparisons."""
     return edge.sailing_distance_nm
 
 

@@ -1,4 +1,4 @@
-"""Expected sailing-time routing for E2."""
+"""Expected transport-time routing for E3."""
 
 from __future__ import annotations
 
@@ -9,11 +9,15 @@ from maritime_data_context import Booking
 
 from typing import Optional
 
-from .strategy_parameters import ENABLE_INITIAL_WAIT
+from .strategy_parameters import (
+    ENABLE_INITIAL_WAIT,
+    ENABLE_TRANSFER_COST,
+    validate_wait_configuration,
+)
 from .routing import (
     build_feasible_candidate_bookings,
     build_path_signature,
-    distance_cost,
+    distance_transition_cost,
     expected_sailing_hours,
     remove_bookings_from_service_routes,
     shortest_booking_path,
@@ -37,6 +41,7 @@ def assign_associated_bookings_by_expected_sailing_time(
         fall back to the baseline/default strategy.
     """
     global _DEBUG_SAMPLES_SEEN
+    validate_wait_configuration()
 
     demand = shipment.demand
     origin_port = demand.origin_port
@@ -53,20 +58,12 @@ def assign_associated_bookings_by_expected_sailing_time(
     if not candidate_bookings:
         return None
 
-    origin_cost_fn = None
-    if ENABLE_INITIAL_WAIT:
-        origin_cost_fn = lambda edge: (
-            estimate_service_wait_hours(edge.service_route)
-            + expected_sailing_hours(edge)
-        )
-
     time_path = shortest_booking_path(
         context,
         origin_port,
         destination_port,
         candidate_bookings,
-        expected_sailing_hours,
-        origin_cost_fn=origin_cost_fn,
+        _transition_cost,
     )
     if not time_path:
         return None
@@ -154,7 +151,7 @@ def _maybe_log_distance_comparison(
         origin_port,
         destination_port,
         candidate_bookings,
-        distance_cost,
+        distance_transition_cost,
     )
 
     time_signature = build_path_signature(time_path)
@@ -174,3 +171,27 @@ def _maybe_log_distance_comparison(
         )
 
     _DEBUG_SAMPLES_SEEN += 1
+
+
+def _transition_cost(previous_route, edge) -> float:
+    """Charge sailing time plus the correct route-entry wait for E1/E2/E3."""
+    validate_wait_configuration()
+
+    sailing_hours = expected_sailing_hours(edge)
+    if not math.isfinite(sailing_hours):
+        return math.inf
+
+    if not ENABLE_INITIAL_WAIT:
+        return sailing_hours
+
+    waiting_hours = 0.0
+    if previous_route is None:
+        waiting_hours = estimate_service_wait_hours(edge.service_route)
+    elif previous_route is edge.service_route:
+        waiting_hours = 0.0
+    elif ENABLE_TRANSFER_COST:
+        waiting_hours = estimate_service_wait_hours(edge.service_route)
+
+    if not math.isfinite(waiting_hours):
+        return math.inf
+    return sailing_hours + waiting_hours
