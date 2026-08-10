@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 _TOPOLOGY_CACHE: "weakref.WeakKeyDictionary[object, tuple[RouteSpan, ...]]" = (
     weakref.WeakKeyDictionary()
 )
+_SPAN_LOOKUP_CACHE: "weakref.WeakKeyDictionary[object, dict[tuple[object, object, object, int, int], RouteSpan]]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 @dataclass(frozen=True)
@@ -58,13 +61,14 @@ def shortest_booking_path(
     destination_port,
     candidate_bookings: Iterable[RouteSpan],
     transition_cost_fn: Callable[[object, RouteSpan], float],
+    initial_previous_route: object = None,
 ) -> Optional[list[RouteSpan]]:
     """Return the minimum-cost booking path using Dijkstra over route-aware state."""
     outgoing: dict[object, list[RouteSpan]] = {}
     for edge in candidate_bookings:
         outgoing.setdefault(edge.departure_port, []).append(edge)
 
-    start_state = (origin_port, None)
+    start_state = (origin_port, initial_previous_route)
     distances = {start_state: 0.0}
     previous_edge: dict[tuple[object, object], RouteSpan] = {}
     previous_state: dict[tuple[object, object], tuple[object, object]] = {}
@@ -147,6 +151,26 @@ def distance_transition_cost(previous_route, edge: RouteSpan) -> float:
     return edge.sailing_distance_nm
 
 
+def evaluate_booking_path_cost(
+    path: Optional[Iterable[RouteSpan]],
+    transition_cost_fn: Callable[[object, RouteSpan], float],
+    initial_previous_route: object = None,
+) -> float:
+    """Evaluate a concrete booking path under the same route-aware transition cost."""
+    if path is None:
+        return math.inf
+
+    total = 0.0
+    previous_route = initial_previous_route
+    for edge in path:
+        step_cost = transition_cost_fn(previous_route, edge)
+        if not math.isfinite(step_cost):
+            return math.inf
+        total += step_cost
+        previous_route = edge.service_route
+    return total
+
+
 def build_path_signature(path: Optional[Iterable[RouteSpan]]) -> tuple:
     """Compact signature for debug comparison output."""
     if path is None:
@@ -161,6 +185,41 @@ def build_path_signature(path: Optional[Iterable[RouteSpan]]) -> tuple:
         )
         for edge in path
     )
+
+
+def build_canonical_path_signature(path: Optional[Iterable[RouteSpan]]) -> tuple:
+    """Compact signature after merging contiguous same-service spans."""
+    normalized = normalize_booking_path(path)
+    return build_path_signature(normalized)
+
+
+def normalize_booking_path(path: Optional[Iterable[RouteSpan]]) -> list[RouteSpan]:
+    """Merge contiguous spans that stay on the same service route."""
+    if path is None:
+        return []
+
+    normalized: list[RouteSpan] = []
+    for edge in path:
+        if not normalized:
+            normalized.append(edge)
+            continue
+
+        previous = normalized[-1]
+        if _can_merge_spans(previous, edge):
+            normalized[-1] = RouteSpan(
+                service_route=previous.service_route,
+                departure_port=previous.departure_port,
+                arrival_port=edge.arrival_port,
+                departure_segment_index=previous.departure_segment_index,
+                arrival_segment_index=edge.arrival_segment_index,
+                sailing_distance_nm=previous.sailing_distance_nm + edge.sailing_distance_nm,
+                traversed_segments=previous.traversed_segments + edge.traversed_segments,
+                traversed_ports=previous.traversed_ports + edge.traversed_ports,
+            )
+        else:
+            normalized.append(edge)
+
+    return normalized
 
 
 def _get_route_spans(context) -> tuple[RouteSpan, ...]:
@@ -216,6 +275,48 @@ def _get_route_spans(context) -> tuple[RouteSpan, ...]:
     return cached
 
 
+def build_route_span_lookup(context) -> dict[tuple[object, object, object, int, int], RouteSpan]:
+    """Return a cached lookup from route-span identity to RouteSpan."""
+    cached = _SPAN_LOOKUP_CACHE.get(context)
+    if cached is not None:
+        return cached
+
+    lookup: dict[tuple[object, object, object, int, int], RouteSpan] = {}
+    for span in _get_route_spans(context):
+        lookup[
+            (
+                span.service_route,
+                span.departure_port,
+                span.arrival_port,
+                span.departure_segment_index,
+                span.arrival_segment_index,
+            )
+        ] = span
+
+    _SPAN_LOOKUP_CACHE[context] = lookup
+    return lookup
+
+
+def find_route_span(
+    context,
+    service_route,
+    departure_port,
+    arrival_port,
+    departure_segment_index: int,
+    arrival_segment_index: int,
+) -> Optional[RouteSpan]:
+    """Find one cached route span matching the supplied identity fields."""
+    return build_route_span_lookup(context).get(
+        (
+            service_route,
+            departure_port,
+            arrival_port,
+            departure_segment_index,
+            arrival_segment_index,
+        )
+    )
+
+
 def _get_service_route_speed_knots(service_route) -> float:
     vessels = getattr(service_route, "deployed_vessels", None) or []
     if not vessels:
@@ -223,6 +324,27 @@ def _get_service_route_speed_knots(service_route) -> float:
     vessel = vessels[0]
     vessel_class = getattr(vessel, "vessel_class", None)
     return float(getattr(vessel_class, "sailing_speed", 0.0) or 0.0)
+
+
+def _can_merge_spans(previous: RouteSpan, edge: RouteSpan) -> bool:
+    if previous.service_route is not edge.service_route:
+        return False
+    if previous.arrival_port is not edge.departure_port:
+        return False
+    next_departure_index = _next_segment_index(previous.service_route, previous.arrival_segment_index)
+    return next_departure_index == edge.departure_segment_index
+
+
+def _next_segment_index(service_route, segment_index: int) -> int:
+    segments = sorted(getattr(service_route, "segments", None) or [], key=lambda segment: segment.sequence_index)
+    if not segments:
+        return segment_index
+    sequence_indices = [segment.sequence_index for segment in segments]
+    try:
+        current_pos = sequence_indices.index(segment_index)
+    except ValueError:
+        return segment_index
+    return sequence_indices[(current_pos + 1) % len(sequence_indices)]
 
 
 def _is_active(plan, now: dt.datetime) -> bool:

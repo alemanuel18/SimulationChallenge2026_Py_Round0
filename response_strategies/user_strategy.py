@@ -9,7 +9,9 @@ implemented as part of ``adjust_bookings_before_cargo_handling`` so route and
 vessel changes are decided together with shipment booking changes.
 """
 
+from .dynamic_rerouting import maybe_reroute_carried_shipments
 from .expected_time import assign_associated_bookings_by_expected_sailing_time
+from . import strategy_parameters
 
 class UserStrategy:
     @staticmethod
@@ -143,5 +145,6 @@ class UserStrategy:
         bool
             Return ``True`` after updating the affected booking chains.
         """
-        # E1 does not enable in-transit rerouting.
+        if strategy_parameters.ENABLE_DYNAMIC_REROUTING:
+            maybe_reroute_carried_shipments(context, now, vessel)
         return False
