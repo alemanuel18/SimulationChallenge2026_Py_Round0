@@ -12,11 +12,15 @@ from typing import Optional
 from . import strategy_parameters
 from .routing import (
     build_feasible_candidate_bookings,
+    build_default_equivalent_candidate_bookings,
     build_path_signature,
     distance_transition_cost,
     expected_sailing_hours,
+    normalize_booking_path,
     remove_bookings_from_service_routes,
     shortest_booking_path,
+    shortest_booking_path_default_semantics,
+    shortest_booking_path_with_operational_tie_break,
     _get_service_route_speed_knots,
 )
 
@@ -50,17 +54,37 @@ def assign_associated_bookings_by_expected_sailing_time(
     if origin_port == destination_port:
         return True
 
-    candidate_bookings = build_feasible_candidate_bookings(context, now)
+    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5"}:
+        candidate_bookings = build_default_equivalent_candidate_bookings(context, now)
+    else:
+        candidate_bookings = build_feasible_candidate_bookings(context, now)
     if not candidate_bookings:
         return None
 
-    time_path = shortest_booking_path(
-        context,
-        origin_port,
-        destination_port,
-        candidate_bookings,
-        _transition_cost,
-    )
+    if strategy_parameters.EXPERIMENT == "E1_4":
+        time_path = shortest_booking_path_with_operational_tie_break(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost,
+        )
+    elif strategy_parameters.EXPERIMENT == "E1_5":
+        time_path = shortest_booking_path_default_semantics(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost,
+        )
+    else:
+        time_path = shortest_booking_path(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost,
+        )
     if not time_path:
         return None
 
@@ -78,6 +102,9 @@ def assign_associated_bookings_by_expected_sailing_time(
 
 
 def _materialize_booking_chain(shipment, path) -> None:
+    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5"}:
+        path = normalize_booking_path(path)
+
     for sequence_index, edge in enumerate(path, start=1):
         booking = Booking(
             sequence_index=sequence_index,

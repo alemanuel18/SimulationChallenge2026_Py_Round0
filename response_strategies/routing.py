@@ -7,11 +7,14 @@ import heapq
 import logging
 import math
 import weakref
+from functools import cmp_to_key
 from dataclasses import dataclass
 from itertools import count
 from typing import Callable, Iterable, Optional
 
 logger = logging.getLogger(__name__)
+
+from . import strategy_parameters
 
 _TOPOLOGY_CACHE: "weakref.WeakKeyDictionary[object, tuple[RouteSpan, ...]]" = (
     weakref.WeakKeyDictionary()
@@ -51,6 +54,35 @@ def build_feasible_candidate_bookings(context, now) -> list[RouteSpan]:
         if not _route_is_available_for_booking(route.service_route, disruption_key):
             continue
         spans.append(route)
+
+    return spans
+
+
+def build_default_equivalent_candidate_bookings(context, now) -> list[RouteSpan]:
+    """Build candidate bookings using DefaultStrategy span-level disruption semantics."""
+    close_berth_plans, congested_leg_plans = _get_active_disruption_plans(
+        context, now
+    )
+    avoid_port_names = _get_avoid_port_names(close_berth_plans)
+    congested_legs = _get_congested_legs(congested_leg_plans)
+    disruption_key = (
+        tuple(sorted(avoid_port_names)),
+        tuple(
+            sorted(
+                _leg_key(plan.target_leg)
+                for plan in congested_leg_plans
+                if plan.target_leg is not None
+            )
+        ),
+    )
+
+    spans: list[RouteSpan] = []
+    for span in _get_route_spans(context):
+        if not _route_is_available_for_booking(span.service_route, disruption_key):
+            continue
+        if not _span_is_available_for_booking(span, avoid_port_names, congested_legs):
+            continue
+        spans.append(span)
 
     return spans
 
@@ -97,6 +129,145 @@ def shortest_booking_path(
                 previous_edge[next_state] = edge
                 previous_state[next_state] = current_state
                 heapq.heappush(heap, (alternative, next(push_order), next_state))
+
+    if destination_state is None:
+        return None
+
+    path: list[RouteSpan] = []
+    cursor = destination_state
+    while cursor != start_state:
+        edge = previous_edge.get(cursor)
+        if edge is None:
+            return None
+        path.append(edge)
+        cursor = previous_state.get(cursor)
+        if cursor is None:
+            return None
+    path.reverse()
+    return path
+
+
+def shortest_booking_path_default_semantics(
+    context,
+    origin_port,
+    destination_port,
+    candidate_bookings: Iterable[RouteSpan],
+    transition_cost_fn: Callable[[object, RouteSpan], float],
+) -> Optional[list[RouteSpan]]:
+    """Return a DefaultStrategy-equivalent port-state shortest path."""
+    outgoing: dict[object, list[RouteSpan]] = {}
+    for edge in candidate_bookings:
+        outgoing.setdefault(edge.departure_port, []).append(edge)
+
+    distances = {port: math.inf for port in context.ports}
+    previous_edge: dict[object, RouteSpan] = {}
+    unvisited = list(context.ports)
+    distances[origin_port] = 0.0
+    tolerance = strategy_parameters.E1_4_COST_TOLERANCE_HOURS
+
+    while unvisited:
+        current = unvisited[0]
+        for port in unvisited[1:]:
+            if _is_cost_better_with_tolerance(
+                distances[port], distances[current], tolerance
+            ):
+                current = port
+        if math.isinf(distances[current]) or current is destination_port:
+            break
+        unvisited.remove(current)
+        for edge in outgoing.get(current, []):
+            next_port = edge.arrival_port
+            if next_port not in unvisited:
+                continue
+            step_cost = transition_cost_fn(None, edge)
+            if not math.isfinite(step_cost):
+                continue
+            alternative = distances[current] + step_cost
+            if _is_cost_better_with_tolerance(
+                alternative, distances[next_port], tolerance
+            ):
+                distances[next_port] = alternative
+                previous_edge[next_port] = edge
+
+    if destination_port not in previous_edge:
+        return None
+
+    path = []
+    cursor = destination_port
+    while cursor is not origin_port:
+        edge = previous_edge.get(cursor)
+        if edge is None:
+            return None
+        path.append(edge)
+        cursor = edge.departure_port
+    path.reverse()
+    return path
+
+
+def shortest_booking_path_with_operational_tie_break(
+    context,
+    origin_port,
+    destination_port,
+    candidate_bookings: Iterable[RouteSpan],
+    transition_cost_fn: Callable[[object, RouteSpan], float],
+    initial_previous_route: object = None,
+) -> Optional[list[RouteSpan]]:
+    """Return the minimum sailing-cost path with deterministic operational tie-breaks."""
+    outgoing: dict[object, list[RouteSpan]] = {}
+    for edge in candidate_bookings:
+        outgoing.setdefault(edge.departure_port, []).append(edge)
+
+    start_state = (origin_port, initial_previous_route)
+    best_labels: dict[tuple[object, object], _OperationalSearchLabel] = {
+        start_state: _OperationalSearchLabel(0.0, 0, 0, ())
+    }
+    previous_edge: dict[tuple[object, object], RouteSpan] = {}
+    previous_state: dict[tuple[object, object], tuple[object, object]] = {}
+    open_states = [start_state]
+    open_membership = {start_state}
+    destination_state = None
+
+    while open_states:
+        current_state = min(
+            open_states,
+            key=cmp_to_key(
+                lambda left, right: _compare_operational_labels(
+                    best_labels[left], best_labels[right]
+                )
+            ),
+        )
+        open_states.remove(current_state)
+        open_membership.remove(current_state)
+
+        current_label = best_labels[current_state]
+        current_port, current_route = current_state
+        if current_port is destination_port:
+            destination_state = current_state
+            break
+
+        for edge in outgoing.get(current_port, []):
+            next_state = (edge.arrival_port, edge.service_route)
+            step_cost = transition_cost_fn(current_route, edge)
+            if not math.isfinite(step_cost):
+                continue
+
+            candidate_label = _OperationalSearchLabel(
+                current_label.primary_cost + step_cost,
+                current_label.route_changes
+                + (1 if current_route is not None and current_route is not edge.service_route else 0),
+                current_label.span_count + 1,
+                current_label.path_key + (_edge_signature(edge),),
+            )
+            incumbent = best_labels.get(next_state)
+            if not _is_better_operational_label(candidate_label, incumbent):
+                continue
+
+            best_labels[next_state] = candidate_label
+            previous_edge[next_state] = edge
+            previous_state[next_state] = current_state
+            if next_state not in open_membership:
+                open_states.append(next_state)
+                open_membership.add(next_state)
 
     if destination_state is None:
         return None
@@ -391,8 +562,77 @@ def _route_is_available_for_booking(route, disruption_key):
     return bool(getattr(route, "deployed_vessels", None))
 
 
+def _span_is_available_for_booking(span: RouteSpan, avoid_port_names, congested_legs) -> bool:
+    if span.arrival_port.name.casefold() in avoid_port_names:
+        return False
+    if any(segment.associated_leg in congested_legs for segment in span.traversed_segments):
+        return False
+    intermediate_ports = span.traversed_ports[:-1]
+    return not any(port.name.casefold() in avoid_port_names for port in intermediate_ports)
+
+
 def _leg_key(leg):
     return (
         leg.departure_port.name.casefold(),
         leg.arrival_port.name.casefold(),
     )
+
+
+@dataclass(frozen=True)
+class _OperationalSearchLabel:
+    primary_cost: float
+    route_changes: int
+    span_count: int
+    path_key: tuple
+
+
+def _edge_signature(edge: RouteSpan) -> tuple:
+    return (
+        edge.service_route.id,
+        edge.departure_segment_index,
+        edge.arrival_segment_index,
+        edge.departure_port.name,
+        edge.arrival_port.name,
+    )
+
+
+def _is_better_operational_label(
+    candidate: _OperationalSearchLabel,
+    incumbent: Optional[_OperationalSearchLabel],
+) -> bool:
+    if incumbent is None:
+        return True
+    return _compare_operational_labels(candidate, incumbent) < 0
+
+
+def _compare_operational_labels(
+    left: _OperationalSearchLabel,
+    right: _OperationalSearchLabel,
+) -> int:
+    tolerance = strategy_parameters.E1_4_COST_TOLERANCE_HOURS
+    if left.primary_cost < right.primary_cost - tolerance:
+        return -1
+    if right.primary_cost < left.primary_cost - tolerance:
+        return 1
+
+    if left.route_changes != right.route_changes:
+        return -1 if left.route_changes < right.route_changes else 1
+    if left.span_count != right.span_count:
+        return -1 if left.span_count < right.span_count else 1
+    if left.path_key < right.path_key:
+        return -1
+    if left.path_key > right.path_key:
+        return 1
+    return 0
+
+
+def _is_cost_better_with_tolerance(
+    candidate: float,
+    incumbent: float,
+    tolerance: float,
+) -> bool:
+    if candidate < incumbent - tolerance:
+        return True
+    if incumbent < candidate - tolerance:
+        return False
+    return False
