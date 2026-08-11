@@ -54,7 +54,7 @@ def assign_associated_bookings_by_expected_sailing_time(
     if origin_port == destination_port:
         return True
 
-    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5"}:
+    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E5"}:
         candidate_bookings = build_default_equivalent_candidate_bookings(context, now)
     else:
         candidate_bookings = build_feasible_candidate_bookings(context, now)
@@ -68,6 +68,35 @@ def assign_associated_bookings_by_expected_sailing_time(
             destination_port,
             candidate_bookings,
             _transition_cost,
+        )
+    elif strategy_parameters.EXPERIMENT == "E5":
+        initial_wait_cache: dict[tuple[object, object], float] = {}
+
+        def _transition_cost_with_initial_wait(previous_route, edge):
+            sailing_hours = expected_sailing_hours(edge)
+            if not math.isfinite(sailing_hours):
+                return math.inf
+
+            if previous_route is not None:
+                return sailing_hours
+
+            waiting_hours = estimate_initial_next_vessel_wait_hours(
+                context,
+                now,
+                edge.service_route,
+                edge.departure_port,
+                initial_wait_cache,
+            )
+            if not math.isfinite(waiting_hours):
+                return math.inf
+            return sailing_hours + waiting_hours
+
+        time_path = shortest_booking_path(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost_with_initial_wait,
         )
     elif strategy_parameters.EXPERIMENT == "E1_5":
         time_path = shortest_booking_path_default_semantics(
@@ -102,7 +131,7 @@ def assign_associated_bookings_by_expected_sailing_time(
 
 
 def _materialize_booking_chain(shipment, path) -> None:
-    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5"}:
+    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E5"}:
         path = normalize_booking_path(path)
 
     for sequence_index, edge in enumerate(path, start=1):
@@ -152,6 +181,206 @@ def estimate_service_wait_hours(service_route) -> float:
     if not math.isfinite(headway_hours):
         return math.inf
     return headway_hours / 2.0
+
+
+def estimate_initial_next_vessel_wait_hours(
+    context,
+    now,
+    service_route,
+    boarding_port,
+    cache: Optional[dict[tuple[object, object], float]] = None,
+) -> float:
+    """Estimate the next compatible vessel wait at the boarding port.
+
+    The estimate is computed from currently observable vessel position/state only:
+      - current_segment
+      - current_berth
+      - assigned_service_route
+      - route segment order
+      - current sailing-time multipliers
+      - route start_day_of_week for vessels not yet released
+
+    The result is cached per (service_route, boarding_port) for a single
+    booking assignment when ``cache`` is provided.
+    """
+    cache_key = (service_route, boarding_port)
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+
+    vessels = list(getattr(service_route, "deployed_vessels", None) or [])
+    if not vessels:
+        wait_hours = math.inf
+    else:
+        wait_hours = min(
+            (
+                estimate_vessel_eta_to_port(vessel, boarding_port, now)
+                for vessel in vessels
+            ),
+            default=math.inf,
+        )
+
+    if cache is not None:
+        cache[cache_key] = wait_hours
+    return wait_hours
+
+
+def estimate_vessel_eta_to_port(vessel, boarding_port, now) -> float:
+    """Estimate when a vessel can next serve a shipment at ``boarding_port``.
+
+    Semantics used here:
+      - Sailing vessels: remaining time to the next arrival at the target port
+        along the current cyclic route order, including the current segment.
+      - Berth / handling vessels: if already at the target port, wait is 0; otherwise
+        the estimate starts from the next route segment after the vessel's current
+        completed segment.
+      - Awaiting-instructions vessels (``current_segment`` and ``current_berth`` are
+        both ``None``): the estimate adds the route's next scheduled release delay
+        from ``start_day_of_week`` and then the sailing time to the target port.
+
+    This is intentionally conservative and uses only current observable state.
+    """
+    route = getattr(vessel, "assigned_service_route", None)
+    if route is None or boarding_port is None:
+        return math.inf
+
+    segments = sorted(
+        getattr(route, "segments", None) or [],
+        key=lambda segment: segment.sequence_index,
+    )
+    if not segments:
+        return math.inf
+
+    vessel_class = getattr(vessel, "vessel_class", None)
+    route_speed_knots = float(getattr(vessel_class, "sailing_speed", 0.0) or 0.0)
+    if route_speed_knots <= 0:
+        return math.inf
+
+    current_segment = getattr(vessel, "current_segment", None)
+    current_berth = getattr(vessel, "current_berth", None)
+
+    if current_berth is not None:
+        berth_port = getattr(current_berth, "port", None)
+        if berth_port is boarding_port:
+            return 0.0
+
+        if current_segment is None:
+            start_index = _find_first_departure_segment_index(segments, berth_port)
+            if start_index is None:
+                return math.inf
+            return _estimate_remaining_route_time(
+                segments,
+                start_index,
+                boarding_port,
+                route_speed_knots,
+            )
+
+        next_index = _next_segment_position(segments, current_segment)
+        if next_index is None:
+            return math.inf
+        return _estimate_remaining_route_time(
+            segments,
+            next_index,
+            boarding_port,
+            route_speed_knots,
+        )
+
+    if current_segment is None:
+        initial_delay_hours = _route_initial_release_delay_hours(route, now)
+        return initial_delay_hours + _estimate_remaining_route_time(
+            segments,
+            0,
+            boarding_port,
+            route_speed_knots,
+        )
+
+    current_leg = getattr(current_segment, "associated_leg", None)
+    if current_leg is not None and current_leg.arrival_port is boarding_port:
+        return _segment_sailing_hours(current_segment, route_speed_knots)
+
+    start_index = _segment_position(segments, current_segment)
+    if start_index is None:
+        return math.inf
+    return _estimate_remaining_route_time(
+        segments,
+        start_index,
+        boarding_port,
+        route_speed_knots,
+    )
+
+
+def _segment_position(segments, target_segment) -> Optional[int]:
+    for index, segment in enumerate(segments):
+        if segment is target_segment:
+            return index
+    target_sequence_index = getattr(target_segment, "sequence_index", None)
+    if target_sequence_index is None:
+        return None
+    for index, segment in enumerate(segments):
+        if segment.sequence_index == target_sequence_index:
+            return index
+    return None
+
+
+def _next_segment_position(segments, current_segment) -> Optional[int]:
+    current_index = _segment_position(segments, current_segment)
+    if current_index is None:
+        return None
+    return (current_index + 1) % len(segments)
+
+
+def _find_first_departure_segment_index(segments, port) -> Optional[int]:
+    for index, segment in enumerate(segments):
+        leg = getattr(segment, "associated_leg", None)
+        if leg is not None and leg.departure_port is port:
+            return index
+    return None
+
+
+def _segment_sailing_hours(segment, route_speed_knots: float) -> float:
+    leg = getattr(segment, "associated_leg", None)
+    if leg is None:
+        return math.inf
+    return (leg.sailing_distance / route_speed_knots) * leg.sailing_time_multiplier
+
+
+def _estimate_remaining_route_time(
+    segments,
+    start_index: int,
+    boarding_port,
+    route_speed_knots: float,
+) -> float:
+    total_hours = 0.0
+    segment_count = len(segments)
+    for offset in range(segment_count):
+        segment = segments[(start_index + offset) % segment_count]
+        segment_hours = _segment_sailing_hours(segment, route_speed_knots)
+        if not math.isfinite(segment_hours):
+            return math.inf
+        total_hours += segment_hours
+        leg = getattr(segment, "associated_leg", None)
+        if leg is not None and leg.arrival_port is boarding_port:
+            return total_hours
+    return math.inf
+
+
+def _route_initial_release_delay_hours(route, now) -> float:
+    start_day = getattr(route, "start_day_of_week", None)
+    if start_day is None or now is None:
+        return 0.0
+
+    total_seconds = (
+        now.hour * 3600
+        + now.minute * 60
+        + now.second
+        + now.microsecond / 1e6
+    )
+    current_day_fraction = total_seconds / 86400.0
+    current_day = now.weekday() + current_day_fraction
+
+    delay_days = start_day - current_day
+    if delay_days < 0:
+        delay_days += 7.0
+    return max(0.0, delay_days) * 24.0
 
 
 def _maybe_log_distance_comparison(
