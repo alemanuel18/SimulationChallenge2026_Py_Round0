@@ -5,7 +5,7 @@ This keeps E1/E2/E3/E4 configuration consistent without touching routing
 behavior.
 """
 
-EXPERIMENT = "E3"
+EXPERIMENT = "E4"
 MIN_REROUTE_SAVING_HOURS = 24.0
 
 ENABLE_INITIAL_WAIT = False
