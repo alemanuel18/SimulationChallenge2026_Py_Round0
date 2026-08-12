@@ -580,11 +580,13 @@ def _transition_cost(previous_route, edge) -> float:
 
     waiting_hours = 0.0
     if previous_route is None:
-        waiting_hours = estimate_service_wait_hours(edge.service_route)
+        weight = getattr(strategy_parameters, "INITIAL_WAIT_WEIGHT", 1.0)
+        waiting_hours = estimate_service_wait_hours(edge.service_route) * weight
     elif previous_route is edge.service_route:
         waiting_hours = 0.0
     elif strategy_parameters.ENABLE_TRANSFER_COST:
-        waiting_hours = estimate_service_wait_hours(edge.service_route)
+        weight = getattr(strategy_parameters, "TRANSFER_WAIT_WEIGHT", 1.0)
+        waiting_hours = estimate_service_wait_hours(edge.service_route) * weight
 
     if not math.isfinite(waiting_hours):
         return math.inf

@@ -127,3 +127,27 @@ Para validar el correcto funcionamiento de las utilidades de simulación (`o2des
 ```bash
 pytest
 ```
+
+---
+
+## Optimización Automatizada de Parámetros (`auto_tune.py`)
+
+Para encontrar automáticamente la mejor combinación de variables y reducir el tiempo de tránsito de los cargueros (ATT - *Average Transport Time*), el proyecto incluye un optimizador en bucle continuo: **`auto_tune.py`**.
+
+### ¿Cómo funciona?
+1. **Exploración Automatizada:** Ejecuta simulaciones modificando parámetros clave en [response_strategies/strategy_parameters.py](file:///home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/response_strategies/strategy_parameters.py) (umbrales de ahorro `MIN_REROUTE_SAVING_HOURS`, pesos de espera `INITIAL_WAIT_WEIGHT`, `TRANSFER_WAIT_WEIGHT`, flags de transbordo y rutas alternativas).
+2. **Evaluación de Métricas:** Al finalizar cada simulación, calcula el tiempo promedio de tránsito (*Average Transport Time*) excluyendo el intervalo final si es anómalo.
+3. **Guardado Exclusivo de Mejoras:** 
+   - Mantiene un registro del récord actual.
+   - **Solo cuando una corrida logra un nuevo récord**, crea una carpeta dedicada en `Output/Mejoras/Mejora_RunXXX_ATT_XX.XXdias_YYYYMMDD_HHMMSS/` con todos los CSVs, copia el log a `Logs/Mejoras/` y actualiza `Output/Mejoras/best_configuration.json`.
+   - Si la corrida no supera el récord, no guarda copias pesadas para evitar llenar el disco.
+4. **Bucle Infinito Adaptativo:** Si un ciclo no encuentra mejoras directas, ajusta los rangos de búsqueda (*fine-tuning*) y continúa explorando variaciones en bucle infinito.
+
+### ¿Cómo ejecutarlo?
+Para iniciar la optimización automática:
+
+```bash
+python auto_tune.py
+```
+
+> **Nota:** El script correrá de manera continua buscando batir el récord de tiempo. Puedes detenerlo en cualquier momento presionando `Ctrl+C` en la terminal. La mejor configuración encontrada quedará guardada en `Output/Mejoras/best_configuration.json`.
