@@ -22,8 +22,19 @@ MEJORAS_OUTPUT_DIR = OUTPUT_DIR / "Mejoras"
 MEJORAS_LOGS_DIR = LOGS_DIR / "Mejoras"
 
 
+def get_python_executable() -> str:
+    """Find virtual environment python executable or fall back to sys.executable."""
+    venv_py = PROJECT_ROOT / ".venv" / "bin" / "python"
+    if venv_py.exists():
+        return str(venv_py)
+    win_venv_py = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
+    if win_venv_py.exists():
+        return str(win_venv_py)
+    return sys.executable
+
+
 def find_att_csv() -> Path | None:
-    """Find ATT_By_Statistics_Interval.csv in Output or its subdirectories."""
+    """Find ATT_By_Statistics_Interval.csv in Output root or subdirectories."""
     direct = OUTPUT_DIR / "ATT_By_Statistics_Interval.csv"
     if direct.exists():
         return direct
@@ -95,6 +106,16 @@ def parse_att_csv(csv_path: Path | None = None) -> tuple[float, float]:
         return float("inf"), 0.0
 
 
+def clean_root_outputs():
+    """Remove previous run CSVs from Output root so stale metrics aren't read."""
+    if OUTPUT_DIR.exists():
+        for item in OUTPUT_DIR.glob("*.csv"):
+            try:
+                item.unlink()
+            except OSError:
+                pass
+
+
 def run_simulation(config: dict) -> tuple[float, float, float]:
     """Run main.py in a subprocess with the given configuration environment variables."""
     env = os.environ.copy()
@@ -102,14 +123,17 @@ def run_simulation(config: dict) -> tuple[float, float, float]:
     env["SIM_MIN_REROUTE_SAVING_HOURS"] = str(config.get("MIN_REROUTE_SAVING_HOURS", 24.0))
     env["SIM_ENABLE_INITIAL_WAIT"] = str(config.get("ENABLE_INITIAL_WAIT", False))
     env["SIM_ENABLE_TRANSFER_COST"] = str(config.get("ENABLE_TRANSFER_COST", False))
-    env["SIM_ENABLE_DYNAMIC_REROUTING"] = str(config.get("SIM_ENABLE_DYNAMIC_REROUTING", False))
+    env["SIM_ENABLE_DYNAMIC_REROUTING"] = str(config.get("ENABLE_DYNAMIC_REROUTING", False))
     env["SIM_INITIAL_WAIT_WEIGHT"] = str(config.get("INITIAL_WAIT_WEIGHT", 1.0))
     env["SIM_TRANSFER_WAIT_WEIGHT"] = str(config.get("TRANSFER_WAIT_WEIGHT", 1.0))
     env["SIM_ENABLE_ALTERNATIVE_ROUTES"] = str(config.get("ENABLE_ALTERNATIVE_ROUTES", False))
 
-    start_time = time.time()
-    cmd = [sys.executable, str(PROJECT_ROOT / "main.py")]
+    clean_root_outputs()
 
+    python_exe = get_python_executable()
+    cmd = [python_exe, str(PROJECT_ROOT / "main.py")]
+
+    start_time = time.time()
     proc = subprocess.run(
         cmd,
         env=env,
@@ -117,8 +141,13 @@ def run_simulation(config: dict) -> tuple[float, float, float]:
         stderr=subprocess.STDOUT,
         text=True,
     )
-
     elapsed_sec = time.time() - start_time
+
+    if proc.returncode != 0:
+        print(f"\n[ERROR] main.py falló con código de salida {proc.returncode}:")
+        print(proc.stdout[:1500] if proc.stdout else "No output.")
+        return float("inf"), 0.0, elapsed_sec
+
     csv_file = find_att_csv()
     mean_att, completed_teus = parse_att_csv(csv_file)
 
@@ -175,6 +204,7 @@ def main():
     print("=" * 70)
     print("Modo de ejecución: BUCLE CONTINUO (se detiene con Ctrl+C)")
     print("Filtro de guardado: SOLO SE ARCHIVAN MEJORAS DE TIEMPO (ATT)")
+    print(f"Ejecutable Python: {get_python_executable()}")
     print("=" * 70)
 
     # Define initial baseline configuration
@@ -241,7 +271,8 @@ def main():
                     att, teus, duration = run_simulation(test_config)
                     print(f"   Resultado ATT: {att:.4f} días | TEUs: {teus:,.0f} | Duración: {duration/60:.2f} min")
 
-                    var_results.append((att, val, test_config))
+                    if att != float("inf"):
+                        var_results.append((att, val, test_config))
 
                     if att < best_att:
                         print(f"   ¡NUEVO RÉCORD DETECTADO! ATT mejoró de {best_att:.4f} a {att:.4f} días.")
@@ -252,8 +283,9 @@ def main():
                         archive_improvement(best_config, best_att, best_teus, run_count)
 
                 # Keep top 2 values for this variable
-                var_results.sort(key=lambda x: x[0])
-                top_candidates_per_var[var_name] = [item[1] for item in var_results[:2]]
+                if var_results:
+                    var_results.sort(key=lambda x: x[0])
+                    top_candidates_per_var[var_name] = [item[1] for item in var_results[:2]]
 
             # Combinatorial pass of top candidates
             print(f"\n--- Evaluando Combinaciones de Top Candidatos ---")
