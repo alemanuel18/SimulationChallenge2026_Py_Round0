@@ -13,6 +13,9 @@ from .dynamic_rerouting import maybe_reroute_carried_shipments
 from .e8_alternative_routes import (
     create_alternative_service_routes as create_e8_alternative_service_routes,
 )
+from .e9_booking_normalization import (
+    assign_associated_bookings as assign_e9_associated_bookings,
+)
 from .expected_time import assign_associated_bookings_by_expected_sailing_time
 from . import strategy_parameters
 
@@ -97,6 +100,7 @@ class UserStrategy:
             "E5",
             "E6",
             "E7",
+            "E9",
         }:
             return None
 
@@ -132,6 +136,9 @@ class UserStrategy:
             Return ``False`` when no booking can currently be assigned; the
             simulation may keep the shipment waiting and retry later.
         """
+        if strategy_parameters.EXPERIMENT == "E9":
+            return assign_e9_associated_bookings(context, now, shipment)
+
         if strategy_parameters.EXPERIMENT == "E8":
             return None
 
@@ -168,7 +175,7 @@ class UserStrategy:
         bool
             Return ``True`` after updating the affected booking chains.
         """
-        if strategy_parameters.EXPERIMENT == "E8":
+        if strategy_parameters.EXPERIMENT in {"E8", "E9"}:
             return None
 
         if strategy_parameters.EXPERIMENT in {
