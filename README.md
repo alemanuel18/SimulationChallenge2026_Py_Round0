@@ -57,7 +57,7 @@ Se recomienda el uso de un entorno virtual de Python (`venv`) para evitar confli
 
         ```powershell
         python -m venv .venv
-        .venv\Scripts\Activate.ps1
+        source .venv\Scripts\Activate.ps1
         ```
     * **Desactivar el entorno virtual:**
         Para salir/desactivar el entorno virtual en cualquier sistema, ejecuta:
@@ -70,6 +70,7 @@ Se recomienda el uso de un entorno virtual de Python (`venv`) para evitar confli
 
     ```bash
     pip install -r requirements.txt
+    python -m pip install -r requirements.txt
     ```
 
 ---
