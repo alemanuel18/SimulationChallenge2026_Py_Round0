@@ -155,6 +155,97 @@ def shortest_booking_path(
     return path
 
 
+def shortest_booking_path_e7(
+    context,
+    origin_port,
+    destination_port,
+    candidate_bookings: Iterable[RouteSpan],
+    transition_cost_fn: Callable[[object, RouteSpan], float],
+    initial_previous_route: object = None,
+) -> Optional[list[RouteSpan]]:
+    """Return a minimum-sailing path with narrow structural tie-breaking.
+
+    The lexicographic order is:
+      1. minimum sailing cost
+      2. direct single-ServiceRoute path preferred
+      3. fewer physical intermediate port calls preferred
+      4. deterministic path signature fallback
+    """
+    outgoing: dict[object, list[RouteSpan]] = {}
+    for edge in candidate_bookings:
+        outgoing.setdefault(edge.departure_port, []).append(edge)
+
+    start_state = (origin_port, initial_previous_route)
+    best_labels: dict[tuple[object, object], _E7SearchLabel] = {
+        start_state: _E7SearchLabel(0.0, 0, 0)
+    }
+    previous_edge: dict[tuple[object, object], RouteSpan] = {}
+    previous_state: dict[tuple[object, object], tuple[object, object]] = {}
+    open_states = [start_state]
+    open_membership = {start_state}
+    destination_state = None
+
+    while open_states:
+        current_state = min(
+            open_states,
+            key=cmp_to_key(
+                lambda left, right: _compare_e7_labels(
+                    best_labels[left], best_labels[right]
+                )
+            ),
+        )
+        open_states.remove(current_state)
+        open_membership.remove(current_state)
+
+        current_label = best_labels[current_state]
+        current_port, current_route = current_state
+        if current_port is destination_port:
+            destination_state = current_state
+            break
+
+        for edge in outgoing.get(current_port, []):
+            next_state = (edge.arrival_port, edge.service_route)
+            step_cost = transition_cost_fn(current_route, edge)
+            if not math.isfinite(step_cost):
+                continue
+
+            direct_rank = current_label.direct_rank
+            if current_route is not None and current_route is not edge.service_route:
+                direct_rank = 1
+
+            candidate_label = _E7SearchLabel(
+                current_label.primary_cost + step_cost,
+                direct_rank,
+                current_label.physical_calls + len(edge.traversed_ports),
+            )
+            incumbent = best_labels.get(next_state)
+            if not _is_better_e7_label(candidate_label, incumbent):
+                continue
+
+            best_labels[next_state] = candidate_label
+            previous_edge[next_state] = edge
+            previous_state[next_state] = current_state
+            if next_state not in open_membership:
+                open_states.append(next_state)
+                open_membership.add(next_state)
+
+    if destination_state is None:
+        return None
+
+    path: list[RouteSpan] = []
+    cursor = destination_state
+    while cursor != start_state:
+        edge = previous_edge.get(cursor)
+        if edge is None:
+            return None
+        path.append(edge)
+        cursor = previous_state.get(cursor)
+        if cursor is None:
+            return None
+    path.reverse()
+    return path
+
+
 def shortest_booking_path_default_semantics(
     context,
     origin_port,
@@ -370,6 +461,24 @@ def build_canonical_path_signature(path: Optional[Iterable[RouteSpan]]) -> tuple
     """Compact signature after merging contiguous same-service spans."""
     normalized = normalize_booking_path(path)
     return build_path_signature(normalized)
+
+
+def path_uses_single_service_route(path: Optional[Iterable[RouteSpan]]) -> bool:
+    """Return True when a path remains on one service route throughout."""
+    normalized = normalize_booking_path(path)
+    if not normalized:
+        return False
+    first_route = normalized[0].service_route
+    return all(edge.service_route is first_route for edge in normalized)
+
+
+def count_physical_intermediate_port_calls(path: Optional[Iterable[RouteSpan]]) -> int:
+    """Count physical intermediate port calls along a normalized booking path."""
+    normalized = normalize_booking_path(path)
+    if not normalized:
+        return 0
+    traversed_ports = sum(len(edge.traversed_ports) for edge in normalized)
+    return max(0, traversed_ports - 1)
 
 
 def normalize_booking_path(path: Optional[Iterable[RouteSpan]]) -> list[RouteSpan]:
@@ -629,6 +738,13 @@ class _OperationalSearchLabel:
     path_key: tuple
 
 
+@dataclass(frozen=True)
+class _E7SearchLabel:
+    primary_cost: float
+    direct_rank: int
+    physical_calls: int
+
+
 def _edge_signature(edge: RouteSpan) -> tuple:
     return (
         edge.service_route.id,
@@ -666,6 +782,29 @@ def _compare_operational_labels(
         return -1
     if left.path_key > right.path_key:
         return 1
+    return 0
+
+
+def _is_better_e7_label(
+    candidate: _E7SearchLabel,
+    incumbent: Optional[_E7SearchLabel],
+) -> bool:
+    if incumbent is None:
+        return True
+    return _compare_e7_labels(candidate, incumbent) < 0
+
+
+def _compare_e7_labels(left: _E7SearchLabel, right: _E7SearchLabel) -> int:
+    tolerance = strategy_parameters.SAILING_TIE_TOLERANCE_HOURS
+    if left.primary_cost < right.primary_cost - tolerance:
+        return -1
+    if right.primary_cost < left.primary_cost - tolerance:
+        return 1
+
+    if left.direct_rank != right.direct_rank:
+        return -1 if left.direct_rank < right.direct_rank else 1
+    if left.physical_calls != right.physical_calls:
+        return -1 if left.physical_calls < right.physical_calls else 1
     return 0
 
 

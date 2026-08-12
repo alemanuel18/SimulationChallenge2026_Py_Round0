@@ -16,6 +16,7 @@ from .routing import (
     build_path_signature,
     distance_transition_cost,
     expected_sailing_hours,
+    shortest_booking_path_e7,
     normalize_booking_path,
     remove_bookings_from_service_routes,
     shortest_booking_path,
@@ -54,14 +55,22 @@ def assign_associated_bookings_by_expected_sailing_time(
     if origin_port == destination_port:
         return True
 
-    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6"}:
+    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
         candidate_bookings = build_default_equivalent_candidate_bookings(context, now)
     else:
         candidate_bookings = build_feasible_candidate_bookings(context, now)
     if not candidate_bookings:
         return None
 
-    if strategy_parameters.EXPERIMENT == "E1_4":
+    if strategy_parameters.EXPERIMENT == "E7":
+        time_path = shortest_booking_path_e7(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost,
+        )
+    elif strategy_parameters.EXPERIMENT == "E1_4":
         time_path = shortest_booking_path_with_operational_tie_break(
             context,
             origin_port,
@@ -137,6 +146,14 @@ def assign_associated_bookings_by_expected_sailing_time(
             candidate_bookings,
             _transition_cost,
         )
+    elif strategy_parameters.EXPERIMENT == "E7":
+        time_path = shortest_booking_path_e7(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost,
+        )
     else:
         time_path = shortest_booking_path(
             context,
@@ -162,7 +179,7 @@ def assign_associated_bookings_by_expected_sailing_time(
 
 
 def _materialize_booking_chain(shipment, path) -> None:
-    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6"}:
+    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
         path = normalize_booking_path(path)
 
     for sequence_index, edge in enumerate(path, start=1):
