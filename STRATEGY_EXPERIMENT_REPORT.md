@@ -103,6 +103,28 @@ Los valores siguientes fueron verificados en los CSV de salida `Output/<strategy
 | E8 | 20.45 | 1.35 | +0.17 | +0.84% | Regression |
 | E9 | 20.45 | 1.35 | +0.17 | +0.84% | Regression |
 
+### Execution Times From Logs
+
+Los tiempos siguientes se tomaron de la última línea `Simulation Running Time` de cada archivo `Logs/<case>.log`.
+
+| Strategy | Runtime |
+|---|---:|
+| E1 | 00:16:23 |
+| E1_1 | 00:18:19 |
+| E1_2 | 00:17:02 |
+| E1_3 | 00:21:14 |
+| E1_4 | 00:23:35 |
+| E1_5 | 00:19:26 |
+| E1_6 | 00:21:56 |
+| E2 | 00:20:39 |
+| E3 | 00:20:19 |
+| E4 | 00:33:34 |
+| E5 | 00:23:44 |
+| E6 | 02:41:29 |
+| E7 | 00:22:59 |
+| E8 | 00:21:29 |
+| E9 | 00:18:08 |
+
 Ranking by `ATT`:
 
 1. `Original` - `20.28`
@@ -525,7 +547,7 @@ Interpretación:
 
 Sobre rendimiento:
 
-- `Logs/E6.log` registra `Simulation Running Time: 02:41:29`
+- El detalle completo de tiempos por caso está en la tabla `Execution Times From Logs`.
 
 Ese dato muestra que el modelo más costoso no trajo una mejora proporcional del KPI.
 
