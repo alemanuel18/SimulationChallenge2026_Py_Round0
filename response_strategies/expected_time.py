@@ -54,7 +54,7 @@ def assign_associated_bookings_by_expected_sailing_time(
     if origin_port == destination_port:
         return True
 
-    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E5"}:
+    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E5", "E6"}:
         candidate_bookings = build_default_equivalent_candidate_bookings(context, now)
     else:
         candidate_bookings = build_feasible_candidate_bookings(context, now)
@@ -98,6 +98,37 @@ def assign_associated_bookings_by_expected_sailing_time(
             candidate_bookings,
             _transition_cost_with_initial_wait,
         )
+    elif strategy_parameters.EXPERIMENT == "E6":
+        capacity_delay_cache: dict[tuple[object, object, int], float] = {}
+        queued_teu_cache: dict[tuple[object, object, int], int] = {}
+
+        def _transition_cost_with_capacity_delay(previous_route, edge):
+            sailing_hours = expected_sailing_hours(edge)
+            if not math.isfinite(sailing_hours):
+                return math.inf
+
+            if previous_route is not None:
+                return sailing_hours
+
+            capacity_delay_hours = estimate_capacity_delay_hours(
+                origin_port,
+                edge.service_route,
+                edge.departure_segment_index,
+                exclude_shipment=shipment,
+                cache=capacity_delay_cache,
+                queued_teu_cache=queued_teu_cache,
+            )
+            if not math.isfinite(capacity_delay_hours):
+                return math.inf
+            return sailing_hours + capacity_delay_hours
+
+        time_path = shortest_booking_path(
+            context,
+            origin_port,
+            destination_port,
+            candidate_bookings,
+            _transition_cost_with_capacity_delay,
+        )
     elif strategy_parameters.EXPERIMENT == "E1_5":
         time_path = shortest_booking_path_default_semantics(
             context,
@@ -131,7 +162,7 @@ def assign_associated_bookings_by_expected_sailing_time(
 
 
 def _materialize_booking_chain(shipment, path) -> None:
-    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E5"}:
+    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E5", "E6"}:
         path = normalize_booking_path(path)
 
     for sequence_index, edge in enumerate(path, start=1):
@@ -181,6 +212,100 @@ def estimate_service_wait_hours(service_route) -> float:
     if not math.isfinite(headway_hours):
         return math.inf
     return headway_hours / 2.0
+
+
+def estimate_queued_teu(
+    port,
+    service_route,
+    departure_segment_index: int,
+    exclude_shipment=None,
+    cache: Optional[dict[tuple[object, object, int], int]] = None,
+) -> int:
+    """Count physically waiting TEU competing for a specific departure."""
+    cache_key = (port, service_route, departure_segment_index)
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+
+    queued_teu = 0
+    for shipment in list(getattr(port, "shipments_in_storage", None) or []):
+        if shipment is exclude_shipment:
+            continue
+        if getattr(shipment, "current_storage_port", None) is not port:
+            continue
+        if getattr(shipment, "carrying_vessel", None) is not None:
+            continue
+        current_booking_index = getattr(shipment, "current_booking_index", None)
+        if current_booking_index is None:
+            continue
+        try:
+            booking = shipment.get_current_booking()
+        except ValueError:
+            continue
+        if booking.service_route is not service_route:
+            continue
+        if booking.departure_segment_index != departure_segment_index:
+            continue
+        queued_teu += int(getattr(shipment, "teu_size", 0) or 0)
+
+    if cache is not None:
+        cache[cache_key] = queued_teu
+    return queued_teu
+
+
+def estimate_nominal_capacity_teu(service_route) -> float:
+    """Estimate representative vessel capacity for a route."""
+    vessels = list(getattr(service_route, "deployed_vessels", None) or [])
+    if not vessels:
+        return math.inf
+
+    capacities = []
+    for vessel in vessels:
+        vessel_class = getattr(vessel, "vessel_class", None)
+        capacity = float(getattr(vessel_class, "teu_capacity", 0.0) or 0.0)
+        if capacity > 0:
+            capacities.append(capacity)
+    if not capacities:
+        return math.inf
+    return sum(capacities) / len(capacities)
+
+
+def estimate_capacity_delay_hours(
+    port,
+    service_route,
+    departure_segment_index: int,
+    exclude_shipment=None,
+    cache: Optional[dict[tuple[object, object, int], float]] = None,
+    queued_teu_cache: Optional[dict[tuple[object, object, int], int]] = None,
+) -> float:
+    """Estimate boarding delay from spillover beyond one vessel capacity."""
+    cache_key = (port, service_route, departure_segment_index)
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
+
+    queued_teu = estimate_queued_teu(
+        port,
+        service_route,
+        departure_segment_index,
+        exclude_shipment=exclude_shipment,
+        cache=queued_teu_cache,
+    )
+    nominal_capacity = estimate_nominal_capacity_teu(service_route)
+    headway_hours = estimate_headway_hours(service_route)
+
+    if (
+        not math.isfinite(nominal_capacity)
+        or nominal_capacity <= 0
+        or not math.isfinite(headway_hours)
+    ):
+        delay_hours = math.inf
+    else:
+        pressure = queued_teu / nominal_capacity
+        spillover = max(0.0, pressure - 1.0)
+        delay_hours = spillover * headway_hours
+
+    if cache is not None:
+        cache[cache_key] = delay_hours
+    return delay_hours
 
 
 def estimate_initial_next_vessel_wait_hours(

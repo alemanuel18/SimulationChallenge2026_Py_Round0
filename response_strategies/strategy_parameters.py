@@ -1,11 +1,11 @@
 """Simple experiment switches for response-strategy experiments.
 
 Select one experiment explicitly and derive the individual flags from it.
-This keeps E1/E1_1/E1_2/E1_3/E1_4/E1_5/E2/E3/E4/E5 configuration consistent without touching routing
+This keeps E1/E1_1/E1_2/E1_3/E1_4/E1_5/E2/E3/E4/E5/E6 configuration consistent without touching routing
 behavior.
 """
 
-EXPERIMENT = "E5"
+EXPERIMENT = "E6"
 MIN_REROUTE_SAVING_HOURS = 24.0
 E1_4_COST_TOLERANCE_HOURS = 1e-11
 
@@ -13,7 +13,7 @@ ENABLE_INITIAL_WAIT = False
 ENABLE_TRANSFER_COST = False
 ENABLE_DYNAMIC_REROUTING = False
 
-_VALID_EXPERIMENTS = {"E1", "E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E2", "E3", "E4", "E5"}
+_VALID_EXPERIMENTS = {"E1", "E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E2", "E3", "E4", "E5", "E6"}
 
 
 def configure_experiment(experiment: str | None = None) -> None:
@@ -57,6 +57,10 @@ def configure_experiment(experiment: str | None = None) -> None:
         ENABLE_TRANSFER_COST = False
         ENABLE_DYNAMIC_REROUTING = False
     elif EXPERIMENT == "E5":
+        ENABLE_INITIAL_WAIT = False
+        ENABLE_TRANSFER_COST = False
+        ENABLE_DYNAMIC_REROUTING = False
+    elif EXPERIMENT == "E6":
         ENABLE_INITIAL_WAIT = False
         ENABLE_TRANSFER_COST = False
         ENABLE_DYNAMIC_REROUTING = False
