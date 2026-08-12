@@ -10,8 +10,12 @@ vessel changes are decided together with shipment booking changes.
 """
 
 from .dynamic_rerouting import maybe_reroute_carried_shipments
+from .e8_alternative_routes import (
+    create_alternative_service_routes as create_e8_alternative_service_routes,
+)
 from .expected_time import assign_associated_bookings_by_expected_sailing_time
 from . import strategy_parameters
+
 
 class UserStrategy:
     @staticmethod
@@ -80,7 +84,20 @@ class UserStrategy:
         instead be incorporated into ``adjust_bookings_before_cargo_handling``
         when a combined shipping-line and cargo-owner decision is preferred.
         """
-        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
+        if strategy_parameters.EXPERIMENT == "E8":
+            return create_e8_alternative_service_routes(context, now, vessel)
+
+        if strategy_parameters.EXPERIMENT in {
+            "E1_1",
+            "E1_2",
+            "E1_3",
+            "E1_4",
+            "E1_5",
+            "E1_6",
+            "E5",
+            "E6",
+            "E7",
+        }:
             return None
 
         # E1 keeps dynamic rerouting disabled so the experiment is isolated to
@@ -115,6 +132,9 @@ class UserStrategy:
             Return ``False`` when no booking can currently be assigned; the
             simulation may keep the shipment waiting and retry later.
         """
+        if strategy_parameters.EXPERIMENT == "E8":
+            return None
+
         return assign_associated_bookings_by_expected_sailing_time(
             context, now, shipment
         )
@@ -148,7 +168,20 @@ class UserStrategy:
         bool
             Return ``True`` after updating the affected booking chains.
         """
-        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
+        if strategy_parameters.EXPERIMENT == "E8":
+            return None
+
+        if strategy_parameters.EXPERIMENT in {
+            "E1_1",
+            "E1_2",
+            "E1_3",
+            "E1_4",
+            "E1_5",
+            "E1_6",
+            "E5",
+            "E6",
+            "E7",
+        }:
             return None
 
         if strategy_parameters.ENABLE_DYNAMIC_REROUTING:
