@@ -80,7 +80,7 @@ class UserStrategy:
         instead be incorporated into ``adjust_bookings_before_cargo_handling``
         when a combined shipping-line and cargo-owner decision is preferred.
         """
-        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E5", "E6"}:
+        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6"}:
             return None
 
         # E1 keeps dynamic rerouting disabled so the experiment is isolated to
@@ -148,7 +148,7 @@ class UserStrategy:
         bool
             Return ``True`` after updating the affected booking chains.
         """
-        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E5", "E6"}:
+        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6"}:
             return None
 
         if strategy_parameters.ENABLE_DYNAMIC_REROUTING:

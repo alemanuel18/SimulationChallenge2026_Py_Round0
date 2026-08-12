@@ -16,13 +16,6 @@ logger = logging.getLogger(__name__)
 
 from . import strategy_parameters
 
-_TOPOLOGY_CACHE: "weakref.WeakKeyDictionary[object, tuple[RouteSpan, ...]]" = (
-    weakref.WeakKeyDictionary()
-)
-_SPAN_LOOKUP_CACHE: "weakref.WeakKeyDictionary[object, dict[tuple[object, object, object, int, int], RouteSpan]]" = (
-    weakref.WeakKeyDictionary()
-)
-
 
 @dataclass(frozen=True)
 class RouteSpan:
@@ -36,6 +29,21 @@ class RouteSpan:
     sailing_distance_nm: float
     traversed_segments: tuple[object, ...]
     traversed_ports: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class _TopologyCacheEntry:
+    signature: tuple
+    spans: tuple[RouteSpan, ...]
+    lookup: dict[tuple[object, object, object, int, int], RouteSpan]
+
+
+_TOPOLOGY_CACHE: "weakref.WeakKeyDictionary[object, _TopologyCacheEntry]" = (
+    weakref.WeakKeyDictionary()
+)
+_SPAN_LOOKUP_CACHE: "weakref.WeakKeyDictionary[object, _TopologyCacheEntry]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def build_feasible_candidate_bookings(context, now) -> list[RouteSpan]:
@@ -394,14 +402,93 @@ def normalize_booking_path(path: Optional[Iterable[RouteSpan]]) -> list[RouteSpa
 
 
 def _get_route_spans(context) -> tuple[RouteSpan, ...]:
+    return _get_topology_cache_entry(context).spans
+
+
+def build_route_span_lookup(context) -> dict[tuple[object, object, object, int, int], RouteSpan]:
+    """Return a cached lookup from route-span identity to RouteSpan."""
+    return _get_topology_cache_entry(context).lookup
+
+
+def find_route_span(
+    context,
+    service_route,
+    departure_port,
+    arrival_port,
+    departure_segment_index: int,
+    arrival_segment_index: int,
+) -> Optional[RouteSpan]:
+    """Find one cached route span matching the supplied identity fields."""
+    return build_route_span_lookup(context).get(
+        (
+            service_route,
+            departure_port,
+            arrival_port,
+            departure_segment_index,
+            arrival_segment_index,
+        )
+    )
+
+
+def _get_topology_cache_entry(context) -> _TopologyCacheEntry:
+    current_signature = _build_topology_signature(context)
     cached = _TOPOLOGY_CACHE.get(context)
-    if cached is not None:
+    if cached is not None and cached.signature == current_signature:
         return cached
 
-    spans: list[RouteSpan] = []
-    for service_route in context.service_routes:
+    spans = _build_route_spans(context)
+    lookup: dict[tuple[object, object, object, int, int], RouteSpan] = {
+        (
+            span.service_route,
+            span.departure_port,
+            span.arrival_port,
+            span.departure_segment_index,
+            span.arrival_segment_index,
+        ): span
+        for span in spans
+    }
+    entry = _TopologyCacheEntry(
+        signature=current_signature,
+        spans=tuple(spans),
+        lookup=lookup,
+    )
+    _TOPOLOGY_CACHE[context] = entry
+    _SPAN_LOOKUP_CACHE[context] = entry
+    return entry
+
+
+def _build_topology_signature(context) -> tuple:
+    """Compact signature for the current physical route topology."""
+    route_signatures = []
+    for service_route in getattr(context, "service_routes", None) or []:
         segments = sorted(
-            service_route.segments, key=lambda segment: segment.sequence_index
+            getattr(service_route, "segments", None) or [],
+            key=lambda segment: segment.sequence_index,
+        )
+        segment_signatures = []
+        for segment in segments:
+            leg = getattr(segment, "associated_leg", None)
+            if leg is None:
+                segment_signatures.append((segment.sequence_index, None, None, None))
+                continue
+            segment_signatures.append(
+                (
+                    segment.sequence_index,
+                    leg.departure_port.name.casefold(),
+                    leg.arrival_port.name.casefold(),
+                    float(getattr(leg, "sailing_distance", 0.0) or 0.0),
+                )
+            )
+        route_signatures.append((service_route.id, tuple(segment_signatures)))
+    return tuple(route_signatures)
+
+
+def _build_route_spans(context) -> list[RouteSpan]:
+    spans: list[RouteSpan] = []
+    for service_route in getattr(context, "service_routes", None) or []:
+        segments = sorted(
+            getattr(service_route, "segments", None) or [],
+            key=lambda segment: segment.sequence_index,
         )
         segment_count = len(segments)
         if segment_count < 2:
@@ -441,51 +528,7 @@ def _get_route_spans(context) -> tuple[RouteSpan, ...]:
                     )
                 )
 
-    cached = tuple(spans)
-    _TOPOLOGY_CACHE[context] = cached
-    return cached
-
-
-def build_route_span_lookup(context) -> dict[tuple[object, object, object, int, int], RouteSpan]:
-    """Return a cached lookup from route-span identity to RouteSpan."""
-    cached = _SPAN_LOOKUP_CACHE.get(context)
-    if cached is not None:
-        return cached
-
-    lookup: dict[tuple[object, object, object, int, int], RouteSpan] = {}
-    for span in _get_route_spans(context):
-        lookup[
-            (
-                span.service_route,
-                span.departure_port,
-                span.arrival_port,
-                span.departure_segment_index,
-                span.arrival_segment_index,
-            )
-        ] = span
-
-    _SPAN_LOOKUP_CACHE[context] = lookup
-    return lookup
-
-
-def find_route_span(
-    context,
-    service_route,
-    departure_port,
-    arrival_port,
-    departure_segment_index: int,
-    arrival_segment_index: int,
-) -> Optional[RouteSpan]:
-    """Find one cached route span matching the supplied identity fields."""
-    return build_route_span_lookup(context).get(
-        (
-            service_route,
-            departure_port,
-            arrival_port,
-            departure_segment_index,
-            arrival_segment_index,
-        )
-    )
+    return spans
 
 
 def _get_service_route_speed_knots(service_route) -> float:

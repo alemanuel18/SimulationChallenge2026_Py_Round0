@@ -54,7 +54,7 @@ def assign_associated_bookings_by_expected_sailing_time(
     if origin_port == destination_port:
         return True
 
-    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E5", "E6"}:
+    if strategy_parameters.EXPERIMENT in {"E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6"}:
         candidate_bookings = build_default_equivalent_candidate_bookings(context, now)
     else:
         candidate_bookings = build_feasible_candidate_bookings(context, now)
@@ -162,7 +162,7 @@ def assign_associated_bookings_by_expected_sailing_time(
 
 
 def _materialize_booking_chain(shipment, path) -> None:
-    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E5", "E6"}:
+    if strategy_parameters.EXPERIMENT in {"E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6"}:
         path = normalize_booking_path(path)
 
     for sequence_index, edge in enumerate(path, start=1):
