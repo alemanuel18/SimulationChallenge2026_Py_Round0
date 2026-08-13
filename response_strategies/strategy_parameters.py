@@ -12,8 +12,20 @@ ENABLE_DYNAMIC_REROUTING = os.environ.get("SIM_ENABLE_DYNAMIC_REROUTING", "False
 INITIAL_WAIT_WEIGHT = float(os.environ.get("SIM_INITIAL_WAIT_WEIGHT", "1.0"))
 TRANSFER_WAIT_WEIGHT = float(os.environ.get("SIM_TRANSFER_WAIT_WEIGHT", "1.0"))
 ENABLE_ALTERNATIVE_ROUTES = os.environ.get("SIM_ENABLE_ALTERNATIVE_ROUTES", "False").lower() in ("true", "1", "t")
+E10_MIN_EFFECTIVE_SAVING_RATIO = float(
+    os.environ.get("SIM_E10_MIN_EFFECTIVE_SAVING_RATIO", "0.02")
+)
+E10_MAX_EXTRA_TRANSSHIPMENTS = int(
+    os.environ.get("SIM_E10_MAX_EXTRA_TRANSSHIPMENTS", "1")
+)
+E10_QCR_ALLOWED_INCREASE = float(
+    os.environ.get("SIM_E10_QCR_ALLOWED_INCREASE", "0.25")
+)
+E10_QCR_HIGH_PRESSURE = float(
+    os.environ.get("SIM_E10_QCR_HIGH_PRESSURE", "1.00")
+)
 
-_VALID_EXPERIMENTS = {"E1", "E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E2", "E3", "E4", "E5", "E6", "E7", "CUSTOM"}
+_VALID_EXPERIMENTS = {"E1", "E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E2", "E3", "E4", "E5", "E6", "E7", "E10_CHALLENGER", "CUSTOM"}
 
 
 def configure_experiment(experiment: str | None = None) -> None:
@@ -40,7 +52,7 @@ def configure_experiment(experiment: str | None = None) -> None:
         # Leave flags as configured via environment or apply_config_dict
         return
 
-    if EXPERIMENT in {"E1", "E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
+    if EXPERIMENT in {"E1", "E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7", "E10_CHALLENGER"}:
         ENABLE_INITIAL_WAIT = False
         ENABLE_TRANSFER_COST = False
         ENABLE_DYNAMIC_REROUTING = False
@@ -68,6 +80,10 @@ def apply_config_dict(config: dict) -> None:
     global INITIAL_WAIT_WEIGHT
     global TRANSFER_WAIT_WEIGHT
     global ENABLE_ALTERNATIVE_ROUTES
+    global E10_MIN_EFFECTIVE_SAVING_RATIO
+    global E10_MAX_EXTRA_TRANSSHIPMENTS
+    global E10_QCR_ALLOWED_INCREASE
+    global E10_QCR_HIGH_PRESSURE
 
     if "EXPERIMENT" in config:
         EXPERIMENT = str(config["EXPERIMENT"])
@@ -85,6 +101,14 @@ def apply_config_dict(config: dict) -> None:
         TRANSFER_WAIT_WEIGHT = float(config["TRANSFER_WAIT_WEIGHT"])
     if "ENABLE_ALTERNATIVE_ROUTES" in config:
         ENABLE_ALTERNATIVE_ROUTES = bool(config["ENABLE_ALTERNATIVE_ROUTES"])
+    if "E10_MIN_EFFECTIVE_SAVING_RATIO" in config:
+        E10_MIN_EFFECTIVE_SAVING_RATIO = float(config["E10_MIN_EFFECTIVE_SAVING_RATIO"])
+    if "E10_MAX_EXTRA_TRANSSHIPMENTS" in config:
+        E10_MAX_EXTRA_TRANSSHIPMENTS = int(config["E10_MAX_EXTRA_TRANSSHIPMENTS"])
+    if "E10_QCR_ALLOWED_INCREASE" in config:
+        E10_QCR_ALLOWED_INCREASE = float(config["E10_QCR_ALLOWED_INCREASE"])
+    if "E10_QCR_HIGH_PRESSURE" in config:
+        E10_QCR_HIGH_PRESSURE = float(config["E10_QCR_HIGH_PRESSURE"])
 
 
 def validate_wait_configuration() -> None:
@@ -107,4 +131,3 @@ def validate_wait_configuration() -> None:
 
 
 configure_experiment()
-

@@ -10,6 +10,7 @@ vessel changes are decided together with shipment booking changes.
 """
 
 from .dynamic_rerouting import maybe_reroute_carried_shipments
+from .challenger_routing import assign_associated_bookings_challenger
 from .expected_time import assign_associated_bookings_by_expected_sailing_time
 from . import strategy_parameters
 
@@ -83,7 +84,7 @@ class UserStrategy:
         if getattr(strategy_parameters, "ENABLE_ALTERNATIVE_ROUTES", False):
             return None
 
-        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
+        if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7", "E10_CHALLENGER"}:
             return None
 
         # E1 keeps dynamic rerouting disabled so the experiment is isolated to
@@ -118,6 +119,9 @@ class UserStrategy:
             Return ``False`` when no booking can currently be assigned; the
             simulation may keep the shipment waiting and retry later.
         """
+        if strategy_parameters.EXPERIMENT == "E10_CHALLENGER":
+            return assign_associated_bookings_challenger(context, now, shipment)
+
         return assign_associated_bookings_by_expected_sailing_time(
             context, now, shipment
         )
@@ -153,6 +157,9 @@ class UserStrategy:
         """
         if strategy_parameters.EXPERIMENT in {"E1_1", "E1_2", "E1_3", "E1_4", "E1_5", "E1_6", "E5", "E6", "E7"}:
             return None
+
+        if strategy_parameters.EXPERIMENT == "E10_CHALLENGER":
+            return False
 
         if strategy_parameters.ENABLE_DYNAMIC_REROUTING:
             maybe_reroute_carried_shipments(context, now, vessel)

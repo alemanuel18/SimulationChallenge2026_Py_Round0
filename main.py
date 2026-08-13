@@ -33,8 +33,8 @@ from simulation_output_csv_writer import (
 PROJECT_ROOT = Path(__file__).resolve().parent
 DASHBOARD_SCRIPT = PROJECT_ROOT / "dashboard" / "serve_gui.py"
 DASHBOARD_URL = "http://127.0.0.1:8000/dashboard/"
-OUTPUT_DIRECTORY = PROJECT_ROOT / "Output"
-LOGS_DIRECTORY = PROJECT_ROOT / "Logs"
+OUTPUT_DIRECTORY = Path(os.environ.get("SIM_OUTPUT_DIR", PROJECT_ROOT / "Output"))
+LOGS_DIRECTORY = Path(os.environ.get("SIM_LOGS_DIR", PROJECT_ROOT / "Logs"))
 
 
 def main():
@@ -53,7 +53,10 @@ def main():
             sys.stdout = original_stdout
 
     print(f"Simulation log written to: {log_path}")
-    launch_dashboard()
+    if os.environ.get("SIM_DISABLE_DASHBOARD", "False").lower() not in {
+        "true", "1", "t"
+    }:
+        launch_dashboard()
 
 
 def run_simulation():
@@ -126,6 +129,10 @@ def run_simulation():
         period_start_time = sim.clock_time
 
     print("Simulation completed.")
+    if os.environ.get("SIM_EXPERIMENT") == "E10_CHALLENGER":
+        from response_strategies.challenger_routing import DIAGNOSTICS
+
+        print(f"E10 Challenger diagnostics: {DIAGNOSTICS}")
     write_all(sim, OUTPUT_DIRECTORY)
     write_att_by_period(OUTPUT_DIRECTORY, att_period_rows)
     print(f"CSV output written to: {OUTPUT_DIRECTORY}")

@@ -66,6 +66,20 @@ def build_feasible_candidate_bookings(context, now) -> list[RouteSpan]:
     return spans
 
 
+def build_normal_default_candidate_bookings(context) -> list[RouteSpan]:
+    """Build the pre-disruption Default reference graph.
+
+    This intentionally excludes temporary alternative routes.  The challenger
+    uses it only to determine whether the original Default decision is touched
+    by an active disruption; feasible replacement paths are built separately.
+    """
+    return [
+        span
+        for span in _get_route_spans(context)
+        if getattr(span.service_route, "source_service_route", None) is None
+    ]
+
+
 def build_default_equivalent_candidate_bookings(context, now) -> list[RouteSpan]:
     """Build candidate bookings using DefaultStrategy span-level disruption semantics."""
     close_berth_plans, congested_leg_plans = _get_active_disruption_plans(
