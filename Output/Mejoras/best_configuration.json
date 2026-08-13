@@ -1,0 +1,16 @@
+{
+  "timestamp": "20260812_152908",
+  "run_index": 0,
+  "mean_att_days": 20.64661971830986,
+  "completed_teus": 0.0,
+  "configuration": {
+    "EXPERIMENT": "E7",
+    "MIN_REROUTE_SAVING_HOURS": 24.0,
+    "ENABLE_INITIAL_WAIT": false,
+    "ENABLE_TRANSFER_COST": false,
+    "ENABLE_DYNAMIC_REROUTING": false,
+    "INITIAL_WAIT_WEIGHT": 1.0,
+    "TRANSFER_WAIT_WEIGHT": 1.0,
+    "ENABLE_ALTERNATIVE_ROUTES": false
+  }
+}
