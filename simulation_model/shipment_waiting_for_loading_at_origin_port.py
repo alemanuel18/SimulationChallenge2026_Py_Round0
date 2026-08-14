@@ -31,6 +31,7 @@ from response_strategies.strategy_validation import (
     validate_alternative_route_strategy_result,
 )
 from response_strategies.user_strategy import UserStrategy
+from ml_event_logger import active_disruption_count, booking_signature
 
 from .activity_handler import ActivityHandler
 from .ordered_set import OrderedSet
@@ -169,11 +170,31 @@ class ShipmentWaitingForLoadingAtOriginPort(ActivityHandler):
             self._maritime_data_context, self.clock_time, shipment
         )
         if user_decision is not None:
-            return bool(user_decision)
+            result = bool(user_decision)
+            decision_source = "user"
+        else:
+            result = DefaultStrategy.assign_associated_bookings(
+                self._maritime_data_context, self.clock_time, shipment
+            )
+            decision_source = "default"
 
-        return DefaultStrategy.assign_associated_bookings(
-            self._maritime_data_context, self.clock_time, shipment
-        )
+        logger = getattr(self._maritime_data_context, "ml_event_logger", None)
+        if logger is not None:
+            demand = shipment.demand
+            logger.log_decision(
+                self.clock_time,
+                decision_type="initial_booking",
+                decision_source=decision_source,
+                entity_id=shipment.index,
+                port=demand.origin_port.name,
+                origin=demand.origin_port.name,
+                destination=demand.destination_port.name,
+                teu_size=shipment.teu_size,
+                active_disruption_count=active_disruption_count(self._maritime_data_context, self.clock_time),
+                action="booking_assigned" if result else "booking_unavailable",
+                action_details_json={"bookings": booking_signature(shipment)},
+            )
+        return result
 
     def _assign_associated_bookings_without_strategy(self, shipment: 'Shipment') -> bool:
         """Assign the shortest available booking path without disruption filtering."""

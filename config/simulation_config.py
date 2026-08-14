@@ -20,3 +20,6 @@ PORT_CONGESTION_MULTIPLIER = 3
 # first during active disruptions; if it returns no valid decision, the model
 # falls back to DefaultStrategy.
 ENABLE_STRATEGY = True
+
+# Write decision-level features and shipment outcomes under ML_Data/<run id>/.
+ENABLE_ML_EVENT_LOGGING = True

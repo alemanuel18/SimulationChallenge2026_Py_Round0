@@ -17,10 +17,12 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 from config.simulation_config import (
+    ENABLE_ML_EVENT_LOGGING,
     SIMULATION_DAYS,
     STATISTICS_INTERVAL_DAYS,
     WARM_UP_DAYS,
 )
+from ml_event_logger import MLDataLogger
 import scenario_builders
 from simulation_model import Model
 from simulation_output_csv_writer import (
@@ -35,6 +37,7 @@ DASHBOARD_SCRIPT = PROJECT_ROOT / "dashboard" / "serve_gui.py"
 DASHBOARD_URL = "http://127.0.0.1:8000/dashboard/"
 OUTPUT_DIRECTORY = PROJECT_ROOT / "Output"
 LOGS_DIRECTORY = PROJECT_ROOT / "Logs"
+ML_DATA_DIRECTORY = PROJECT_ROOT / "ML_Data"
 
 
 def main():
@@ -63,8 +66,17 @@ def run_simulation():
     context = scenario_builders.create_with_disruption()  # Scenario with a disruption and demand replacement.
     # context = scenario_builders.create()  # Baseline scenario without disruptions.
 
-    # create simulation model with seed=1
-    sim = Model(context, seed=2026)
+    seed = int(os.environ.get("SIMULATION_SEED", "2026"))
+    run_id = os.environ.get(
+        "SIMULATION_RUN_ID",
+        f"disruption_strategy_seed_{seed}_{dt.datetime.now():%Y%m%dT%H%M%S}",
+    )
+    ml_logger = None
+    if ENABLE_ML_EVENT_LOGGING:
+        ml_logger = MLDataLogger(ML_DATA_DIRECTORY, run_id, seed, WARM_UP_DAYS)
+        context.ml_event_logger = ml_logger
+
+    sim = Model(context, seed=seed)
 
     print(f"Simulation warm-up started: {WARM_UP_DAYS:,} days")
     sim.warmup(period=dt.timedelta(days=WARM_UP_DAYS))
@@ -128,6 +140,9 @@ def run_simulation():
     print("Simulation completed.")
     write_all(sim, OUTPUT_DIRECTORY)
     write_att_by_period(OUTPUT_DIRECTORY, att_period_rows)
+    if ml_logger is not None:
+        ml_logger.write_shipment_outcomes(context, sim.clock_time)
+        print(f"ML dataset written to: {ml_logger.output_directory}")
     print(f"CSV output written to: {OUTPUT_DIRECTORY}")
     print()
 

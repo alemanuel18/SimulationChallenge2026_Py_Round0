@@ -32,6 +32,7 @@ from response_strategies.strategy_validation import (
     validate_alternative_route_strategy_result,
 )
 from response_strategies.user_strategy import UserStrategy
+from ml_event_logger import active_disruption_count, booking_signature
 
 if TYPE_CHECKING:
     from maritime_data_context import (
@@ -210,10 +211,35 @@ class VesselQueuingForBerth(ActivityHandler):
                 self._data_context, self.clock_time, vessel
             )
 
+        before = {s.index: booking_signature(s) for s in vessel.carried_shipments}
         user_decision = UserStrategy.adjust_bookings_before_cargo_handling(
             self._data_context, self.clock_time, vessel
         )
+        decision_source = "user"
         if user_decision is None:
             DefaultStrategy.adjust_bookings_before_cargo_handling(
                 self._data_context, self.clock_time, vessel
             )
+            decision_source = "default"
+
+        logger = getattr(self._data_context, "ml_event_logger", None)
+        if logger is not None:
+            port = self._get_arrival_port_for_statistics(vessel)
+            for shipment in vessel.carried_shipments:
+                after = booking_signature(shipment)
+                logger.log_decision(
+                    self.clock_time,
+                    decision_type="in_transit_replanning",
+                    decision_source=decision_source,
+                    entity_id=shipment.index,
+                    port=port.name if port else "",
+                    route=vessel.assigned_service_route.id,
+                    origin=shipment.demand.origin_port.name,
+                    destination=shipment.demand.destination_port.name,
+                    teu_size=shipment.teu_size,
+                    vessel_capacity=vessel.vessel_class.teu_capacity,
+                    onboard_teu=sum(s.teu_size for s in vessel.carried_shipments),
+                    active_disruption_count=active_disruption_count(self._data_context, self.clock_time),
+                    action="booking_changed" if before.get(shipment.index) != after else "booking_unchanged",
+                    action_details_json={"vessel_id": vessel.index, "before": before.get(shipment.index), "after": after},
+                )

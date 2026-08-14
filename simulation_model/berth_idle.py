@@ -23,6 +23,7 @@ from o2des.core import HourCounter
 from config.simulation_config import ENABLE_STRATEGY, PORT_CONGESTION_MULTIPLIER
 from response_strategies.default_strategy import DefaultStrategy
 from response_strategies.user_strategy import UserStrategy
+from ml_event_logger import active_disruption_count
 from .activity_handler import ActivityHandler
 from .ordered_set import OrderedSet
 
@@ -175,6 +176,7 @@ class BerthIdle(ActivityHandler):
 
             strategy_is_enabled = ENABLE_STRATEGY and self._data_context is not None
 
+            decision_source = "fifo"
             if not strategy_is_enabled:
                 vessel = waiting_vessels[0]
             elif (
@@ -192,10 +194,12 @@ class BerthIdle(ActivityHandler):
                 vessel = UserStrategy.select_vessel_for_berth(
                     **strategy_arguments
                 )
+                decision_source = "user"
                 if vessel is None:
                     vessel = DefaultStrategy.select_vessel_for_berth(
                         **strategy_arguments
                     )
+                    decision_source = "default"
             else:
                 vessel = waiting_vessels[0]
 
@@ -205,6 +209,26 @@ class BerthIdle(ActivityHandler):
                 raise ValueError(
                     "PortResponseStrategy.select_vessel_for_berth must return "
                     "one of the waiting vessels for the berth's port."
+                )
+
+            logger = getattr(self._data_context, "ml_event_logger", None)
+            if logger is not None:
+                waiting_since = self._waiting_since_by_vessel.get(vessel)
+                logger.log_decision(
+                    self.clock_time,
+                    decision_type="berth_selection",
+                    decision_source=decision_source,
+                    entity_id=vessel.index,
+                    port=berth.port.name,
+                    route=vessel.assigned_service_route.id,
+                    queue_length=len(waiting_vessels),
+                    available_berths=len(available_berths),
+                    waiting_hours=(self.clock_time - waiting_since).total_seconds() / 3600 if waiting_since else 0,
+                    vessel_capacity=vessel.vessel_class.teu_capacity,
+                    onboard_teu=sum(s.teu_size for s in vessel.carried_shipments),
+                    active_disruption_count=active_disruption_count(self._data_context, self.clock_time),
+                    action=f"select_vessel_{vessel.index}",
+                    action_details_json={"candidate_vessel_ids": [v.index for v in waiting_vessels]},
                 )
 
             # Match selected vessel to berth
