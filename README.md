@@ -58,6 +58,7 @@ Se recomienda el uso de un entorno virtual de Python (`venv`) para evitar confli
         ```powershell
         python -m venv .venv
         source .venv\Scripts\Activate.ps1
+        source .venv/Scripts/activate
         ```
     * **Desactivar el entorno virtual:**
         Para salir/desactivar el entorno virtual en cualquier sistema, ejecuta:

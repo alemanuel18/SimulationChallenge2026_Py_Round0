@@ -1,0 +1,22 @@
+Port,Origin Waiting TEU,Transshipment Waiting TEU,Total Waiting TEU,Vessels Waiting
+Busan,765,315,"1,079",0.02
+Cartagena,253,0,253,0.01
+Colombo,485,17,501,0.01
+Hamburg,319,0,319,0.00
+Ho Chi Minh City,92,0,92,0.04
+Jakarta,109,0,109,0.05
+Jebel Ali,447,0,447,0.00
+Kaohsiung,229,93,322,0.12
+Laem Chabang,93,0,93,0.02
+Los Angeles,491,0,491,0.00
+New Jersey,433,158,591,0.01
+Piraeus,223,0,223,0.00
+Qingdao,315,78,393,0.01
+Rotterdam,440,0,440,0.00
+Shanghai,672,"1,498","2,170",0.00
+Shenzhen,510,142,652,0.00
+Singapore,507,516,"1,024",0.01
+Tanger Med,231,88,319,0.01
+Tianjin,183,0,183,0.01
+Xiamen,279,0,279,0.02
+TOTAL,"7,073","2,906","9,979",0.35
