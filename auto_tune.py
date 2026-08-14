@@ -1,13 +1,10 @@
-"""Auto-Tuner for WSC 2026 Maritime Simulation Challenge.
-
-Runs bounded, reproducible E10 comparison campaigns and preserves every trial.
-"""
+"""Continuous, resumable optimizer for the WSC 2026 E10 strategy."""
 
 import datetime as dt
-import itertools
 import json
 import math
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -225,46 +222,174 @@ def archive_improvement(
     print(f"\n[RÉCORD GUARDADO] Nueva mejora archivada en: {dest_output}")
 
 
+_E10_DEFAULTS = {
+    "EXPERIMENT": "E10_CHALLENGER",
+    "ENABLE_STRATEGY": True,
+    "E10_MIN_EFFECTIVE_SAVING_RATIO": 0.02,
+    "E10_MAX_EXTRA_TRANSSHIPMENTS": 1,
+    "E10_QCR_ALLOWED_INCREASE": 0.25,
+    "E10_QCR_HIGH_PRESSURE": 1.00,
+}
+
+
+def _canonicalize_config(config: dict) -> dict:
+    """Make omitted E10 defaults explicit for stable history deduplication."""
+    if (
+        config.get("EXPERIMENT") == "E10_CHALLENGER"
+        and config.get("ENABLE_STRATEGY", True)
+    ):
+        return {**_E10_DEFAULTS, **config}
+    return dict(config)
+
+
 def _configuration_key(config: dict) -> str:
-    return json.dumps(config, sort_keys=True, separators=(",", ":"))
+    return json.dumps(_canonicalize_config(config), sort_keys=True, separators=(",", ":"))
 
 
-def _load_completed_configurations() -> set[str]:
+def _load_history() -> list[dict]:
     history = TUNING_DIR / "optimization_history.jsonl"
     if not history.exists():
-        return set()
-    completed = set()
+        return []
+    records = []
     for line in history.read_text(encoding="utf-8").splitlines():
         try:
-            completed.add(_configuration_key(json.loads(line)["configuration"]))
+            record = json.loads(line)
+            record["configuration"] = _canonicalize_config(record["configuration"])
+            records.append(record)
         except (KeyError, json.JSONDecodeError):
             continue
-    return completed
+    return records
 
 
-def _run_campaign(candidates: list[tuple[str, dict]], run_index: int, completed: set[str]):
-    results = []
-    for name, config in candidates:
-        key = _configuration_key(config)
-        if key in completed:
-            print(f"[Omitido] {name}: configuración ya evaluada.")
+def _load_historical_best() -> tuple[float, str]:
+    """Return the best ATT available in prior Output experiments.
+
+    Older experiment folders do not always preserve a complete parameter set,
+    so they are a global benchmark rather than mutation parents for E10.
+    """
+    best_att = math.inf
+    best_label = "sin resultados"
+    for csv_path in OUTPUT_DIR.glob("*/ATT_By_Statistics_Interval.csv"):
+        if csv_path.parent.name in {"Tuning", "Mejoras"}:
             continue
-        run_index += 1
-        print(f"\n[Run #{run_index}] {name}")
-        att, teus, duration = run_simulation(config, run_index, name)
-        record_run(config, att, teus, duration, run_index, name)
-        print(f"  ATT: {att:.4f} días | TEUs: {teus:,.0f} | Duración: {duration / 60:.2f} min")
-        if math.isfinite(att):
-            results.append((att, teus, config, name, run_index))
-    return results, run_index
+        att, _ = parse_att_csv(csv_path)
+        if att < best_att:
+            best_att = att
+            best_label = csv_path.parent.name
+    return best_att, best_label
+
+
+def _is_finite_result(record: dict) -> bool:
+    return math.isfinite(float(record.get("mean_att_days", math.inf)))
+
+
+def _is_e10_result(record: dict) -> bool:
+    config = record["configuration"]
+    return config.get("EXPERIMENT") == "E10_CHALLENGER" and config.get(
+        "ENABLE_STRATEGY", True
+    )
+
+
+def _adaptive_candidate(records: list[dict], seen: set[str]) -> tuple[str, dict] | None:
+    """Propose an untested local or distant E10 mutation from saved results."""
+    results = [record for record in records if _is_e10_result(record) and _is_finite_result(record)]
+    if not results:
+        return None
+
+    ranked = sorted(results, key=lambda record: record["mean_att_days"])
+    best = ranked[0]
+    recent = results[-4:]
+    earlier = results[:-4]
+    earlier_best = min(
+        (record["mean_att_days"] for record in earlier), default=math.inf
+    )
+    recent_improvement = min(
+        (record["mean_att_days"] for record in recent), default=math.inf
+    ) < earlier_best - 1e-9
+    # Stagnation expands the local search and raises the chance of a distant jump.
+    scale = 0.6 if recent_improvement else 1.8
+    rng = random.Random(20260813 + len(records))
+    stagnant = not recent_improvement and len(recent) == 4
+    distant_search = rng.random() < (0.35 if stagnant else 0.20)
+
+    parameter_names = {
+        "saving": "E10_MIN_EFFECTIVE_SAVING_RATIO",
+        "transfers": "E10_MAX_EXTRA_TRANSSHIPMENTS",
+    }
+    mutable_dimensions = []
+    for dimension, parameter_name in parameter_names.items():
+        observed_values = {
+            record["configuration"][parameter_name] for record in results
+        }
+        observed_scores = {
+            round(record["mean_att_days"], 9)
+            for record in results
+            if parameter_name in record["configuration"]
+        }
+        # Do not keep spending runs on a parameter that has already varied but
+        # produced exactly the same ATT in every observed E10 result.
+        if len(observed_values) > 1 and len(observed_scores) == 1:
+            continue
+        mutable_dimensions.append(dimension)
+    if not mutable_dimensions:
+        mutable_dimensions = list(parameter_names)
+
+    for _ in range(120):
+        if distant_search:
+            candidate = _canonicalize_config(best["configuration"])
+            candidate["E10_MIN_EFFECTIVE_SAVING_RATIO"] = round(
+                rng.uniform(0.0, 0.30), 3
+            )
+            candidate["E10_MAX_EXTRA_TRANSSHIPMENTS"] = rng.randint(0, 3)
+            dimensions = ()
+        else:
+            parent_pool = ranked[: min(5, len(ranked))]
+            parent = rng.choice(parent_pool)
+            candidate = _canonicalize_config(parent["configuration"])
+            dimensions = rng.sample(
+                mutable_dimensions,
+                k=min(
+                    len(mutable_dimensions),
+                    1 if len(results) < 6 else rng.choice((1, 2)),
+                ),
+            )
+        for dimension in dimensions:
+            if dimension == "saving":
+                delta = rng.uniform(-0.05, 0.05) * scale
+                candidate["E10_MIN_EFFECTIVE_SAVING_RATIO"] = round(
+                    min(0.30, max(0.0, candidate["E10_MIN_EFFECTIVE_SAVING_RATIO"] + delta)),
+                    3,
+                )
+            elif dimension == "transfers":
+                delta = rng.choice((-1, 1))
+                candidate["E10_MAX_EXTRA_TRANSSHIPMENTS"] = min(
+                    3,
+                    max(0, candidate["E10_MAX_EXTRA_TRANSSHIPMENTS"] + delta),
+                )
+        if _configuration_key(candidate) not in seen:
+            mode = "distante" if distant_search else "local"
+            return mode, candidate
+    return None
 
 
 def main():
-    """Run a bounded, reproducible campaign instead of an endless coordinate search."""
-    print("WSC 2026: campaña de evaluación E10")
+    """Run until Ctrl+C, resuming from the persisted optimization history."""
+    print("WSC 2026: optimizador adaptativo continuo E10")
     print("Cada corrida usa Output/Tuning/<run>/ y no inicia el dashboard.")
-    completed = _load_completed_configurations()
-    run_index = 0
+    print("Detenga la búsqueda de forma segura con Ctrl+C.")
+    records = _load_history()
+    seen = {_configuration_key(record["configuration"]) for record in records}
+    run_index = max((int(record.get("run_index", 0)) for record in records), default=0)
+    historical_best_att, historical_best_label = _load_historical_best()
+    recorded_best = min(
+        (record["mean_att_days"] for record in records if _is_finite_result(record)),
+        default=math.inf,
+    )
+    global_best_att = min(historical_best_att, recorded_best)
+    print(
+        f"Mejor referencia acumulada: {global_best_att:.4f} días "
+        f"({historical_best_label})."
+    )
 
     default_control = {"EXPERIMENT": "E10_CHALLENGER", "ENABLE_STRATEGY": False}
     e10_normal = {"EXPERIMENT": "E10_CHALLENGER", "ENABLE_STRATEGY": True}
@@ -276,44 +401,70 @@ def main():
         "E10_QCR_ALLOWED_INCREASE": 0.50,
         "E10_QCR_HIGH_PRESSURE": 1.25,
     }
-    first_pass = [
+    seed_candidates = [
         ("C0_default", default_control),
         ("C1_e10_normal", e10_normal),
         ("C2_e10_parametros_ajustados", e10_adjusted),
     ]
-    results, run_index = _run_campaign(first_pass, run_index, completed)
-    e10_results = [result for result in results if result[2].get("ENABLE_STRATEGY")]
-    finalists = sorted(e10_results, key=lambda result: result[0])[:1]
-
-    refinement_candidates = []
-    for _, _, base, name, _ in finalists:
-        for saving, qcr_increase in itertools.product(
-            (0.00, 0.02, 0.05), (0.10, 0.25, 0.50)
-        ):
-            candidate = {
-                **base,
-                "E10_MIN_EFFECTIVE_SAVING_RATIO": saving,
-                "E10_QCR_ALLOWED_INCREASE": qcr_increase,
-            }
-            refinement_candidates.append(
-                (f"R_{name}_{saving:.2f}_{qcr_increase:.2f}", candidate)
+    try:
+        while True:
+            next_item = next(
+                (
+                    (name, _canonicalize_config(config))
+                    for name, config in seed_candidates
+                    if _configuration_key(config) not in seen
+                ),
+                None,
             )
+            if next_item is None:
+                proposed = _adaptive_candidate(records, seen)
+                if proposed is None:
+                    print("No se pudo proponer una combinación E10 no evaluada.")
+                    break
+                mode, candidate = proposed
+                next_item = (f"A{run_index + 1:06d}_{mode}", candidate)
 
-    refined, run_index = _run_campaign(refinement_candidates, run_index, completed)
-    all_results = results + refined
-    if not all_results:
-        print("No hubo corridas nuevas; revise Output/Tuning/optimization_history.jsonl.")
-        return
-
-    best_att, best_teus, best_config, best_name, best_run = min(all_results, key=lambda result: result[0])
-    archive_improvement(
-        best_config,
-        best_att,
-        best_teus,
-        best_run,
-        TUNING_DIR / f"{best_run:03d}_{best_name}" / "Output",
-    )
-    print(f"\nMejor resultado de esta campaña: {best_name} = {best_att:.4f} días")
+            name, config = next_item
+            run_index += 1
+            print(f"\n[Run #{run_index}] {name}: {config}")
+            att, teus, duration = run_simulation(config, run_index, name)
+            record_run(config, att, teus, duration, run_index, name)
+            record = {
+                "run_index": run_index,
+                "phase": name,
+                "configuration": _canonicalize_config(config),
+                "mean_att_days": att,
+                "completed_teus": teus,
+                "duration_seconds": duration,
+            }
+            records.append(record)
+            seen.add(_configuration_key(config))
+            print(
+                f"  ATT: {att:.4f} días | TEUs: {teus:,.0f} | "
+                f"Duración: {duration / 60:.2f} min"
+            )
+            if math.isfinite(att) and att < global_best_att:
+                global_best_att = att
+                archive_improvement(
+                    config,
+                    att,
+                    teus,
+                    run_index,
+                    TUNING_DIR / f"{run_index:03d}_{name}" / "Output",
+                )
+                print(f"  Nuevo mejor ATT global: {global_best_att:.4f} días")
+    except KeyboardInterrupt:
+        best_e10 = min(
+            (record for record in records if _is_e10_result(record) and _is_finite_result(record)),
+            key=lambda record: record["mean_att_days"],
+            default=None,
+        )
+        print("\nBúsqueda detenida. El historial quedó guardado.")
+        if best_e10 is not None:
+            print(
+                f"Mejor E10 reanudable: {best_e10['mean_att_days']:.4f} días "
+                f"({best_e10['phase']})."
+            )
 
 
 if __name__ == "__main__":
