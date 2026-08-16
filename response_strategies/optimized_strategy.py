@@ -1,5 +1,8 @@
 """Modular user strategy focused on reducing average transport time."""
 
+import datetime as dt
+
+from config.simulation_config import WARM_UP_DAYS
 from response_strategies.default_strategy import DefaultStrategy
 from response_strategies.routing_utils import (
     assign_min_expected_time_bookings,
@@ -25,6 +28,8 @@ class CriticalTimeStrategy:
 
         params = get_strategy_parameters()
         if params.enable_custom_berth_priority < 0.5:
+            return None
+        if _is_berth_priority_paused(current_time, params):
             return None
         waiting_since_by_vessel = waiting_since_by_vessel or {}
         default_vessel = DefaultStrategy.select_vessel_for_berth(
@@ -178,6 +183,16 @@ def _route_touches_disruption(route, snapshot):
 def _waiting_days(vessel, current_time, waiting_since_by_vessel):
     waiting_since = waiting_since_by_vessel.get(vessel, current_time)
     return max(0.0, (current_time - waiting_since).total_seconds() / 86400.0)
+
+
+def _is_berth_priority_paused(current_time, params):
+    simulation_day = (current_time - dt.datetime.min).total_seconds() / 86400.0
+    measured_day = simulation_day - WARM_UP_DAYS
+    return (
+        params.berth_pause_start_measured_day
+        <= measured_day
+        <= params.berth_pause_end_measured_day
+    )
 
 
 def _carried_teu(vessel):

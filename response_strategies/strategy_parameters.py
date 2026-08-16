@@ -36,6 +36,8 @@ class StrategyParameters:
 
     berth_override_margin: float = 0.16
     berth_min_unloading_teu_advantage: float = 8.0
+    berth_pause_start_measured_day: float = 100.0
+    berth_pause_end_measured_day: float = 250.0
     berth_final_unload_weight: float = 0.42
     berth_transshipment_unload_weight: float = 0.18
     berth_unload_age_weight: float = 0.18
