@@ -36,19 +36,6 @@ class StrategyParameters:
 
     berth_override_margin: float = 0.16
     berth_min_unloading_teu_advantage: float = 8.0
-    berth_min_loading_teu_advantage: float = 8.0
-    berth_min_turnaround_advantage: float = 18.0
-    berth_pause_start_measured_day: float = 95.0
-    berth_pause_end_measured_day: float = 9999.0
-    berth_cargo_port_loading_weight: float = 0.48
-    berth_cargo_port_unload_weight: float = 0.20
-    berth_cargo_port_wait_weight: float = 0.12
-    berth_vessel_port_turnaround_weight: float = 0.55
-    berth_vessel_port_unload_weight: float = 0.16
-    berth_vessel_port_wait_weight: float = 0.12
-    berth_hybrid_loading_weight: float = 0.30
-    berth_hybrid_unload_weight: float = 0.28
-    berth_hybrid_turnaround_weight: float = 0.22
     berth_final_unload_weight: float = 0.42
     berth_transshipment_unload_weight: float = 0.18
     berth_unload_age_weight: float = 0.18
