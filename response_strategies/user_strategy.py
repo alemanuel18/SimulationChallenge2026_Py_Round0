@@ -53,7 +53,16 @@ class UserStrategy:
             Return exactly one vessel contained in ``waiting_vessels``.
             Returning another object raises a ``ValueError``.
         """
-        return None
+        from response_strategies.optimized_strategy import CriticalTimeStrategy
+
+        return CriticalTimeStrategy.select_vessel_for_berth(
+            maritime_data_context,
+            port,
+            waiting_vessels,
+            available_berths,
+            current_time,
+            waiting_since_by_vessel,
+        )
 
     @staticmethod
     def create_alternative_service_routes(context, now, vessel=None):
@@ -77,7 +86,11 @@ class UserStrategy:
         instead be incorporated into ``adjust_bookings_before_cargo_handling``
         when a combined shipping-line and cargo-owner decision is preferred.
         """
-        return None
+        from response_strategies.optimized_strategy import CriticalTimeStrategy
+
+        return CriticalTimeStrategy.create_alternative_service_routes(
+            context, now, vessel
+        )
 
     @staticmethod
     def assign_associated_bookings(context, now, shipment):
@@ -107,7 +120,9 @@ class UserStrategy:
             Return ``False`` when no booking can currently be assigned; the
             simulation may keep the shipment waiting and retry later.
         """
-        return None
+        from response_strategies.optimized_strategy import CriticalTimeStrategy
+
+        return CriticalTimeStrategy.assign_associated_bookings(context, now, shipment)
 
     @staticmethod
     def adjust_bookings_before_cargo_handling(context, now, vessel):
@@ -138,4 +153,8 @@ class UserStrategy:
         bool
             Return ``True`` after updating the affected booking chains.
         """
-        return None
+        from response_strategies.optimized_strategy import CriticalTimeStrategy
+
+        return CriticalTimeStrategy.adjust_bookings_before_cargo_handling(
+            context, now, vessel
+        )
