@@ -1,5 +1,11 @@
 Metric,Average Count
+<<<<<<< HEAD
 Average vessels sailing,36.86
 Average vessels waiting for berth at port,0.37
 Average vessels being served at berth,1.76
+=======
+Average vessels sailing,36.16
+Average vessels waiting for berth at port,0.44
+Average vessels being served at berth,2.40
+>>>>>>> parent of 3e45403 (resultado de todos los dias, los primeros 20 periodos y los ultimos dias del 51-72, existe una mejorar, en el intermedio de estos incrementan los tiempo, hay que atacar esa hora pico)
 TOTAL average active/port vessels,39.00
