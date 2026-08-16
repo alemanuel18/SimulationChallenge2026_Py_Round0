@@ -23,7 +23,7 @@ class StrategyParameters:
     no_deployed_vessel_penalty_days: float = 5.0
     disruption_lookahead_days: float = 21.0
     hard_congestion_multiplier: float = 7.0
-    enable_custom_berth_priority: float = 0.0
+    enable_custom_berth_priority: float = 1.0
     enable_initial_time_routing: float = 0.0
     enable_controlled_alternative_routes: float = 0.0
     enable_in_transit_replanning: float = 0.0
@@ -34,13 +34,14 @@ class StrategyParameters:
     alternative_route_min_pressure: float = 0.45
     alternative_route_min_active_multiplier: float = 2.0
 
-    berth_wait_weight: float = 0.22
-    berth_carried_teu_weight: float = 0.22
-    berth_completion_teu_weight: float = 0.24
-    berth_age_weight: float = 0.19
-    berth_capacity_weight: float = 0.08
-    berth_handling_penalty_weight: float = 0.08
-    berth_downstream_penalty_weight: float = 0.05
+    berth_override_margin: float = 0.16
+    berth_min_unloading_teu_advantage: float = 8.0
+    berth_final_unload_weight: float = 0.42
+    berth_transshipment_unload_weight: float = 0.18
+    berth_unload_age_weight: float = 0.18
+    berth_wait_weight: float = 0.12
+    berth_carried_teu_weight: float = 0.06
+    berth_handling_penalty_weight: float = 0.10
 
 
 @lru_cache(maxsize=1)

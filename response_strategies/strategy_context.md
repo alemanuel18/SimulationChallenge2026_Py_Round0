@@ -125,3 +125,26 @@ The best next version should focus on:
 - and replanning only when the net time saving is clear.
 
 That is the version most likely to reduce the real average, rather than only lowering a few local periods.
+
+## Current correction
+
+The current implemented correction keeps routing and replanning disabled by default and activates only a conservative berth-priority override.
+
+The custom berth priority now:
+
+- starts from the default berth decision,
+- scores only vessels in the congested berth queue,
+- gives priority to TEU that will be discharged at the current port,
+- separates final-destination discharge from transshipment discharge,
+- considers the age of unloading cargo,
+- penalizes high handling workload,
+- and only overrides the default if the score gain and unloading gain are both clear.
+
+This avoids the previous failure mode where the strategy changed too many routing decisions and accumulated backlog later in the run.
+
+Partial validation after this correction:
+
+- first 120 measured days with the corrected strategy: `19.2608`,
+- first 120 measured days in the reference CSV: `19.9196`.
+
+This is not a full-run proof yet, but it shows that the corrected conservative berth-priority strategy improves the early measurement window instead of immediately degrading the system.

@@ -4,7 +4,6 @@ from response_strategies.default_strategy import DefaultStrategy
 from response_strategies.routing_utils import (
     assign_min_expected_time_bookings,
     build_disruption_snapshot,
-    port_pressure_days,
     replan_carried_shipments,
     route_pressure,
 )
@@ -28,55 +27,81 @@ class CriticalTimeStrategy:
         if params.enable_custom_berth_priority < 0.5:
             return None
         waiting_since_by_vessel = waiting_since_by_vessel or {}
-        port_pressure = port_pressure_days(port, maritime_data_context, params)
+        default_vessel = DefaultStrategy.select_vessel_for_berth(
+            maritime_data_context,
+            port,
+            waiting_vessels,
+            available_berths,
+            current_time,
+            waiting_since_by_vessel,
+        )
 
         waiting_values = []
         carried_values = []
-        completion_values = []
-        age_values = []
-        capacity_values = []
+        final_unload_values = []
+        transshipment_unload_values = []
+        unload_age_values = []
         handling_values = []
-        downstream_values = []
 
         for vessel in waiting_vessels:
             waiting_values.append(_waiting_days(vessel, current_time, waiting_since_by_vessel))
             carried_values.append(_carried_teu(vessel))
-            completion_values.append(_completion_teu_at_current_port(vessel, port))
-            age_values.append(_weighted_cargo_age_days(vessel, current_time))
-            capacity_values.append(_vessel_capacity(vessel))
+            final_unload_values.append(_final_discharge_teu_at_port(vessel, port))
+            transshipment_unload_values.append(_transshipment_discharge_teu_at_port(vessel, port))
+            unload_age_values.append(_weighted_unloading_age_days(vessel, current_time))
             handling_values.append(_handling_workload(vessel))
-            downstream_values.append(port_pressure + _next_port_pressure(vessel, maritime_data_context, params))
 
         scores = []
         for values in zip(
+            _normalize(final_unload_values),
+            _normalize(transshipment_unload_values),
+            _normalize(unload_age_values),
             _normalize(waiting_values),
             _normalize(carried_values),
-            _normalize(completion_values),
-            _normalize(age_values),
-            _normalize(capacity_values),
             _normalize(handling_values),
-            _normalize(downstream_values),
         ):
             (
+                final_unload_score,
+                transshipment_unload_score,
+                unload_age_score,
                 waiting_score,
                 carried_score,
-                completion_score,
-                age_score,
-                capacity_score,
                 handling_score,
-                downstream_score,
             ) = values
             scores.append(
-                params.berth_wait_weight * waiting_score
+                params.berth_final_unload_weight * final_unload_score
+                + params.berth_transshipment_unload_weight * transshipment_unload_score
+                + params.berth_unload_age_weight * unload_age_score
+                + params.berth_wait_weight * waiting_score
                 + params.berth_carried_teu_weight * carried_score
-                + params.berth_completion_teu_weight * completion_score
-                + params.berth_age_weight * age_score
-                + params.berth_capacity_weight * capacity_score
                 - params.berth_handling_penalty_weight * handling_score
-                - params.berth_downstream_penalty_weight * downstream_score
             )
 
-        return max(enumerate(waiting_vessels), key=lambda item: (scores[item[0]], -item[0]))[1]
+        best_index, best_vessel = max(
+            enumerate(waiting_vessels), key=lambda item: (scores[item[0]], -item[0])
+        )
+        if default_vessel is None or best_vessel is default_vessel:
+            return best_vessel
+
+        default_index = waiting_vessels.index(default_vessel)
+        score_gain = scores[best_index] - scores[default_index]
+        unloading_gain = (
+            final_unload_values[best_index]
+            + transshipment_unload_values[best_index]
+            - final_unload_values[default_index]
+            - transshipment_unload_values[default_index]
+        )
+        final_gain = final_unload_values[best_index] - final_unload_values[default_index]
+        if (
+            score_gain >= params.berth_override_margin
+            and (
+                unloading_gain >= params.berth_min_unloading_teu_advantage
+                or final_gain > 0
+            )
+        ):
+            return best_vessel
+
+        return None
 
     @staticmethod
     def create_alternative_service_routes(context, now, vessel=None):
@@ -162,18 +187,27 @@ def _carried_teu(vessel):
     )
 
 
-def _completion_teu_at_current_port(vessel, port):
+def _final_discharge_teu_at_port(vessel, port):
     total = 0
-    for shipment in getattr(vessel, "carried_shipments", []):
+    for shipment in _discharging_shipments(vessel):
         demand = getattr(shipment, "demand", None)
         if demand is not None and demand.destination_port is port:
             total += getattr(shipment, "teu_size", 0) or 0
     return total
 
 
-def _weighted_cargo_age_days(vessel, current_time):
+def _transshipment_discharge_teu_at_port(vessel, port):
+    total = 0
+    for shipment in _discharging_shipments(vessel):
+        demand = getattr(shipment, "demand", None)
+        if demand is not None and demand.destination_port is not port:
+            total += getattr(shipment, "teu_size", 0) or 0
+    return total
+
+
+def _weighted_unloading_age_days(vessel, current_time):
     weighted_age = 0.0
-    for shipment in getattr(vessel, "carried_shipments", []):
+    for shipment in _discharging_shipments(vessel):
         generated_time = getattr(shipment, "generated_time", None)
         if generated_time is None:
             continue
@@ -181,11 +215,6 @@ def _weighted_cargo_age_days(vessel, current_time):
         age_days = max(0.0, (current_time - generated_time).total_seconds() / 86400.0)
         weighted_age += age_days * teu
     return weighted_age
-
-
-def _vessel_capacity(vessel):
-    vessel_class = getattr(vessel, "vessel_class", None)
-    return getattr(vessel_class, "teu_capacity", 0) or 0
 
 
 def _handling_workload(vessel):
@@ -201,15 +230,11 @@ def _handling_workload(vessel):
         return 0
 
 
-def _next_port_pressure(vessel, context, params):
+def _discharging_shipments(vessel):
     try:
-        next_segment = vessel.get_next_segment()
-    except (AttributeError, ValueError):
-        return 0.0
-    leg = getattr(next_segment, "associated_leg", None)
-    if leg is None:
-        return 0.0
-    return port_pressure_days(leg.arrival_port, context, params)
+        return list(vessel.get_discharging_shipments_at_current_segment())
+    except (AttributeError, TypeError, ValueError):
+        return []
 
 
 def _normalize(values):
