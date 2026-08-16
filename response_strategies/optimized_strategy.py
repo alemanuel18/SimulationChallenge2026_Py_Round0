@@ -1,6 +1,10 @@
 """Modular user strategy focused on reducing average transport time."""
 
 from response_strategies.default_strategy import DefaultStrategy
+from response_strategies.booking_optimizer import (
+    assign_schedule_aware_bookings,
+    record_service_call,
+)
 from response_strategies.routing_utils import (
     assign_min_expected_time_bookings,
     build_disruption_snapshot,
@@ -121,6 +125,10 @@ class CriticalTimeStrategy:
     @staticmethod
     def assign_associated_bookings(context, now, shipment):
         params = get_strategy_parameters()
+        if params.enable_schedule_aware_booking >= 0.5:
+            return assign_schedule_aware_bookings(
+                context, now, shipment, params
+            )
         if params.enable_initial_time_routing < 0.5:
             return None
         snapshot = build_disruption_snapshot(context, now, params)
@@ -135,6 +143,7 @@ class CriticalTimeStrategy:
     @staticmethod
     def adjust_bookings_before_cargo_handling(context, now, vessel):
         params = get_strategy_parameters()
+        record_service_call(context, now, vessel, params)
         if params.enable_in_transit_replanning < 0.5:
             return None
         return replan_carried_shipments(context, now, vessel, params)

@@ -24,6 +24,8 @@ class StrategyParameters:
     disruption_lookahead_days: float = 21.0
     hard_congestion_multiplier: float = 7.0
     enable_custom_berth_priority: float = 1.0
+    enable_schedule_aware_booking: float = 1.0
+    enable_hub_transfer_consolidation: float = 1.0
     enable_initial_time_routing: float = 0.0
     enable_controlled_alternative_routes: float = 0.0
     enable_in_transit_replanning: float = 0.0
@@ -33,6 +35,14 @@ class StrategyParameters:
 
     alternative_route_min_pressure: float = 0.45
     alternative_route_min_active_multiplier: float = 2.0
+
+    booking_call_history_size: float = 12.0
+    booking_default_headway_days: float = 7.0
+    booking_min_headway_days: float = 2.0
+    booking_max_headway_days: float = 12.0
+    booking_handling_buffer_days: float = 0.25
+    booking_min_direct_saving_days: float = 1.0
+    booking_max_direct_extra_sailing_days: float = 3.25
 
     berth_override_margin: float = 0.16
     berth_min_unloading_teu_advantage: float = 8.0
