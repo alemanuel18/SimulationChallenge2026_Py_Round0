@@ -148,3 +148,25 @@ Partial validation after this correction:
 - first 120 measured days in the reference CSV: `19.9196`.
 
 This is not a full-run proof yet, but it shows that the corrected conservative berth-priority strategy improves the early measurement window instead of immediately degrading the system.
+
+## Port-aware correction
+
+The next observed output pattern showed that the most pressured ports were not all failing in the same way:
+
+- high waiting cargo: `Shanghai`, `Singapore`, `Busan`,
+- high waiting vessels: `Kaohsiung`, `Jakarta`, `Ho Chi Minh City`, `Busan`.
+
+The strategy now applies different berth-priority behavior by port group:
+
+- cargo ports prioritize vessels that can load more TEU out of the port,
+- vessel-queue ports prioritize quick turnaround to drain berth queues,
+- `Busan` uses a hybrid rule because it appears in both pressure groups,
+- other ports keep the conservative unloading-focused rule.
+
+Partial validation after this port-aware correction:
+
+- first 120 measured days: `19.2583`,
+- previous corrected first 120 measured days: `19.2608`,
+- reference CSV first 120 measured days: `19.9196`.
+
+This still needs a full 360-day measurement, but it confirms that the port-aware rule does not damage the early window and is slightly better in the partial test.
