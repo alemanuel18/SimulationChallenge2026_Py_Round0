@@ -170,3 +170,30 @@ Partial validation after this port-aware correction:
 - reference CSV first 120 measured days: `19.9196`.
 
 This still needs a full 360-day measurement, but it confirms that the port-aware rule does not damage the early window and is slightly better in the partial test.
+
+Full-run feedback after the port-aware test showed the opposite pattern:
+
+- the first 19 periods stayed acceptable,
+- from period 20 onward the strategy increased the average,
+- the full `OverallMean` worsened to `20.89`.
+
+The current mitigation limits custom berth priority to the first 95 measured days and then falls back to the default strategy for the rest of the run. This keeps the part of the strategy that did not show immediate damage while avoiding the period where it starts amplifying backlog.
+
+Follow-up result:
+
+- limiting the custom berth priority to the early window did not produce a useful improvement,
+- the strategy still failed to reduce the full-run average,
+- and the port-aware berth-priority approach should not be treated as the main path forward.
+
+Current conclusion:
+
+- berth-priority-only interventions are too weak or too late to fix the main bottleneck,
+- targeting only visible waiting ports can shift congestion instead of reducing system-wide transport time,
+- and the next version should move away from berth priority as the central lever.
+
+The next promising direction is to attack demand assignment before backlog forms. That means testing a stricter, low-risk booking policy focused on:
+
+- reducing future load into known bottleneck ports,
+- avoiding unnecessary transshipment into `Shanghai`, `Singapore`, and `Busan`,
+- avoiding flows that feed vessel-waiting bottlenecks like `Kaohsiung`, `Jakarta`, and `Ho Chi Minh City`,
+- and only rerouting OD pairs whose default path crosses those pressure points during the problematic middle window.

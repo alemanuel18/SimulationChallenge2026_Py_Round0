@@ -38,7 +38,7 @@ class StrategyParameters:
     berth_min_unloading_teu_advantage: float = 8.0
     berth_min_loading_teu_advantage: float = 8.0
     berth_min_turnaround_advantage: float = 18.0
-    berth_pause_start_measured_day: float = 9999.0
+    berth_pause_start_measured_day: float = 95.0
     berth_pause_end_measured_day: float = 9999.0
     berth_cargo_port_loading_weight: float = 0.48
     berth_cargo_port_unload_weight: float = 0.20
