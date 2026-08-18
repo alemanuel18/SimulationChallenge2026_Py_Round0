@@ -29,6 +29,7 @@ class StrategyParameters:
     enable_initial_time_routing: float = 0.0
     enable_controlled_alternative_routes: float = 0.0
     enable_in_transit_replanning: float = 0.0
+    suppress_kaohsiung_s2_detour: float = 0.0
 
     replan_min_saving_days: float = 1.0
     replan_disruption_trigger_days: float = 0.25
@@ -43,6 +44,8 @@ class StrategyParameters:
     booking_handling_buffer_days: float = 0.25
     booking_min_direct_saving_days: float = 1.0
     booking_max_direct_extra_sailing_days: float = 3.25
+    booking_partial_prefix_start_measured_day: float = 81.0
+    booking_partial_prefix_end_measured_day: float = 250.0
 
     berth_override_margin: float = 0.16
     berth_min_unloading_teu_advantage: float = 8.0

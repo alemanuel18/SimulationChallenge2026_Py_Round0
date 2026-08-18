@@ -5,6 +5,7 @@ import datetime as dt
 import math
 import statistics
 
+from config.simulation_config import WARM_UP_DAYS
 from maritime_data_context import Booking
 from response_strategies.default_strategy import DefaultStrategy
 from response_strategies.routing_utils import build_disruption_snapshot
@@ -23,7 +24,6 @@ class BookingOption:
     departure_segment_index: int
     arrival_segment_index: int
     segments: tuple
-    signature: tuple
     sailing_days: float
 
 
@@ -73,47 +73,76 @@ def assign_schedule_aware_bookings(context, now, shipment, params) -> bool:
     if len(shipment.associated_bookings) == 0:
         return True
 
-    if len(shipment.associated_bookings) < 2:
-        _increment_stat(context, "default_kept")
-        return True
-
     index = _get_booking_option_index(context)
     original_options = _options_for_bookings(index, shipment.associated_bookings)
     if not original_options:
         return True
 
     snapshot = build_disruption_snapshot(context, now, params)
-    direct_options = _find_safe_direct_options(
-        context,
-        original_options,
-        index,
-        snapshot,
-        params,
+    changed = _try_prefix_consolidation(
+        context, now, shipment, original_options, index, snapshot, params
     )
-    if not direct_options:
+
+    if not changed:
         _increment_stat(context, "default_kept")
-        return True
+    return True
+
+
+def _try_prefix_consolidation(
+    context, now, shipment, original_options, index, snapshot, params
+):
+    if params.enable_hub_transfer_consolidation < 0.5:
+        return False
 
     original_projection = _project_chain(context, now, original_options, params)
-    direct_option, direct_projection = _best_direct_option(
-        context, now, direct_options, params
-    )
-    if (
-        original_projection is None
-        or direct_option is None
-        or direct_projection
-        + dt.timedelta(days=params.booking_min_direct_saving_days)
-        >= original_projection
-    ):
-        _increment_stat(context, "default_kept")
-        return True
+    if original_projection is None:
+        return False
 
-    removed_transfers = len(original_options) - 1
-    _replace_bookings(shipment, [direct_option])
+    best_plan = original_options
+    best_projection = original_projection
+    removed_transfers = 0
+    prefix_ends = [len(original_options) - 1]
+    if _partial_prefix_window_is_active(now, params):
+        prefix_ends = list(range(1, len(original_options)))
+    for prefix_end in prefix_ends:
+        prefix = original_options[: prefix_end + 1]
+        direct_options = _find_safe_direct_options(
+            context,
+            prefix,
+            index,
+            snapshot,
+            params,
+        )
+        for direct_option in direct_options:
+            candidate_plan = [direct_option] + original_options[prefix_end + 1 :]
+            candidate_projection = _project_chain(
+                context, now, candidate_plan, params
+            )
+            if candidate_projection is None or candidate_projection >= best_projection:
+                continue
+            best_plan = candidate_plan
+            best_projection = candidate_projection
+            removed_transfers = prefix_end
+
+    minimum_saving = dt.timedelta(days=params.booking_min_direct_saving_days)
+    if best_projection + minimum_saving >= original_projection:
+        return False
+
+    _replace_bookings(shipment, best_plan)
     _increment_stat(context, "optimized_shipments")
-    _increment_stat(context, "direct_consolidations")
+    _increment_stat(context, "prefix_consolidations")
     _increment_stat(context, "transfers_removed", removed_transfers)
     return True
+
+
+def _partial_prefix_window_is_active(now, params):
+    simulation_day = (now - dt.datetime.min).total_seconds() / 86400.0
+    measured_day = simulation_day - WARM_UP_DAYS
+    return (
+        params.booking_partial_prefix_start_measured_day
+        <= measured_day
+        <= params.booking_partial_prefix_end_measured_day
+    )
 
 
 def _get_booking_option_index(context) -> BookingOptionIndex:
@@ -153,7 +182,6 @@ def _get_booking_option_index(context) -> BookingOptionIndex:
                     ].sequence_index,
                     arrival_segment_index=segment.sequence_index,
                     segments=tuple(path_segments),
-                    signature=_path_signature(path_segments),
                     sailing_days=sailing_days,
                 )
                 key = (
@@ -210,20 +238,6 @@ def _find_safe_direct_options(context, original_options, index, snapshot, params
         and _route_has_active_service(context, option.service_route)
         and _option_is_safe(option, snapshot)
     ]
-
-
-def _best_direct_option(context, now, options, params):
-    projected = []
-    for option in options:
-        pickup_time = _predict_next_call(context, option, now, params)
-        if pickup_time is None:
-            continue
-        arrival_time = _project_arrival(pickup_time, option, params)
-        projected.append((arrival_time, option.service_route.id, option))
-    if not projected:
-        return None, None
-    arrival_time, _, option = min(projected, key=lambda item: (item[0], item[1]))
-    return option, arrival_time
 
 
 def _project_chain(context, ready_time, options, params):
@@ -299,17 +313,6 @@ def _segment_sailing_days(segment, route):
     ]
     speed = sum(speeds) / len(speeds) if speeds else 20.0
     return segment.associated_leg.sailing_distance / speed / 24.0
-
-
-def _path_signature(segments):
-    return tuple(
-        (
-            segment.associated_leg.departure_port,
-            segment.associated_leg.arrival_port,
-            round(float(segment.associated_leg.sailing_distance), 6),
-        )
-        for segment in segments
-    )
 
 
 def _replace_bookings(shipment, options):

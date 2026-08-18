@@ -110,9 +110,14 @@ class CriticalTimeStrategy:
     @staticmethod
     def create_alternative_service_routes(context, now, vessel=None):
         params = get_strategy_parameters()
+        snapshot = build_disruption_snapshot(context, now, params)
+        if (
+            params.suppress_kaohsiung_s2_detour >= 0.5
+            and _snapshot_touches_port(snapshot, "kaohsiung")
+        ):
+            return True
         if params.enable_controlled_alternative_routes < 0.5:
             return None
-        snapshot = build_disruption_snapshot(context, now, params)
 
         if not snapshot.active_closed_ports and not snapshot.congested_leg_multipliers:
             DefaultStrategy.create_alternative_service_routes(context, now, vessel)
@@ -182,6 +187,17 @@ def _route_touches_disruption(route, snapshot):
         if leg.arrival_port.name.casefold() in snapshot.active_closed_ports:
             return True
     return False
+
+
+def _snapshot_touches_port(snapshot, port_name):
+    name = port_name.casefold()
+    if name in snapshot.active_closed_ports:
+        return True
+    return any(
+        leg.departure_port.name.casefold() == name
+        or leg.arrival_port.name.casefold() == name
+        for leg in snapshot.congested_leg_multipliers
+    )
 
 
 def _waiting_days(vessel, current_time, waiting_since_by_vessel):
