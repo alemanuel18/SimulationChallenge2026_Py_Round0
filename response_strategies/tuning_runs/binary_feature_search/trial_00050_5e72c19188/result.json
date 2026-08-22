@@ -1,0 +1,23 @@
+{
+  "candidate_key": "5e72c1918824f0c8e22f7e4cb8829b397d672a99",
+  "elapsed_seconds": 775.01,
+  "error": "",
+  "features": {
+    "enable_controlled_alternative_routes": 1.0,
+    "enable_custom_berth_priority": 1.0,
+    "enable_hub_transfer_consolidation": 1.0,
+    "enable_in_transit_replanning": 1.0,
+    "enable_initial_time_routing": 1.0,
+    "enable_schedule_aware_booking": 0.0,
+    "suppress_kaohsiung_s2_detour": 0.0
+  },
+  "finished_at": "2026-08-21T23:18:00-06:00",
+  "high_period_count": 53,
+  "overall_mean": 34.78,
+  "peak_period_att": 59.67,
+  "period_stddev": 13.31,
+  "return_code": 0,
+  "status": "success",
+  "trial": 50,
+  "trial_dir": "/home/alemanuel/Documents/6\u00baSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/response_strategies/tuning_runs/binary_feature_search/trial_00050_5e72c19188"
+}

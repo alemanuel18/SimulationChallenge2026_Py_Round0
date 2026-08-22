@@ -122,6 +122,67 @@ Puedes activar o desactivar tus estrategias en el archivo de configuración `con
 
 ---
 
+## Optimización Automática de Parámetros (Tuning)
+
+Para encontrar los mejores hiperparámetros (pesos de atraque, penalizaciones de congestión, ventanas de booking y switches estructurales) sin probar combinaciones manualmente, el proyecto incluye herramientas de optimización automatizada en `response_strategies/`.
+
+### 1. Optimizador Bayesiano Inteligente (`bayesian_tuner.py`)
+
+Utiliza **Optuna** con el estimador TPE multivariado (*Tree-structured Parzen Estimator*). Cuenta con:
+* **Warm-Start automático:** Importa el historial de pruebas previas para no empezar de cero.
+* **Persistencia en SQLite:** Guarda el estado en `tuning_runs/bayesian_optuna/study.db`, permitiendo pausar con `Ctrl+C` y reanudar en cualquier momento.
+* **Afinación continua:** Ajusta finamente pesos continuos sobre la base de las mejores características encontradas.
+
+#### Ejecutar de forma indefinida (Recomendado):
+El script corre continuamente por defecto buscando mejores parámetros hasta que lo detengas:
+
+```bash
+# Ejecución interactiva en terminal
+python response_strategies/bayesian_tuner.py --scope continuous
+```
+
+#### Ejecutar en segundo plano (para dejarlo corriendo toda la noche):
+```bash
+nohup .venv/bin/python response_strategies/bayesian_tuner.py --scope continuous > bayesian_tuning.log 2>&1 &
+```
+
+#### Modos de Búsqueda disponibles (`--scope`):
+* `--scope continuous` *(por defecto)*: Fija las características estructurales ganadoras (Trial 11) y sintoniza los pesos numéricos continuos.
+* `--scope berth-focus`: Enfocado en los pesos de prioridad de atraque personalizado (`berth_*`) y booking.
+* `--scope routing-focus`: Enfocado en penalizaciones de almacenamiento, congestión y ventanas de reserva.
+* `--scope all`: Optimiza de forma conjunta tanto las variables binarias como las continuas.
+
+#### Opciones de control:
+```bash
+# Limitar a un número específico de pruebas (ej. 20)
+python response_strategies/bayesian_tuner.py --n-trials 20
+
+# Limitar por tiempo en segundos (ej. 8 horas = 28800 segundos)
+python response_strategies/bayesian_tuner.py --timeout 28800
+```
+
+#### Monitoreo del progreso:
+* **Ver registro de pruebas en tiempo real:**
+  ```bash
+  tail -f response_strategies/tuning_runs/bayesian_optuna/trials.csv
+  ```
+* **Consultar la mejor configuración alcanzada:**
+  ```bash
+  cat response_strategies/tuning_runs/bayesian_optuna/best.json
+  ```
+
+---
+
+### 2. Sintonizador Binario de Características (`parameter_tuner.py`)
+
+Permite explorar combinaciones binarias puras ($0.0$ / $1.0$) de los 7 módulos de estrategia:
+
+```bash
+python response_strategies/parameter_tuner.py
+```
+
+---
+
 ## Pruebas Unitarias
 
 Para validar el correcto funcionamiento de las utilidades de simulación (`o2despy`), puedes ejecutar las pruebas mediante `pytest`:

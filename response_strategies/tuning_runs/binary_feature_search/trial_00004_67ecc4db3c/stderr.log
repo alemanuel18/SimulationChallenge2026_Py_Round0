@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import main; main.run_simulation()
+    ^^^^^^^^^^^
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/main.py", line 25, in <module>
+    from simulation_model import Model
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/simulation_model/__init__.py", line 5, in <module>
+    from .generator import Generator
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/simulation_model/generator.py", line 13, in <module>
+    from o2des.common import ActionSet
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/o2despy/o2des/common/__init__.py", line 22, in <module>
+    from o2des.common.loggable import Loggable
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/o2despy/o2des/common/loggable.py", line 7, in <module>
+    from o2des.utils import LogUtils
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/o2despy/o2des/utils/__init__.py", line 24, in <module>
+    import o2des.utils.file_io_utils as FileIoUtils
+  File "/home/alemanuel/Documents/6ºSemestre/WSC_2026_Simulation_Challenge/SimulationChallenge2026_Py_Round0/o2despy/o2des/utils/file_io_utils.py", line 22, in <module>
+    import pyjson5
+ModuleNotFoundError: No module named 'pyjson5'
