@@ -14,6 +14,9 @@ El simulador está construido sobre **O2DESPy**, una biblioteca en Python para S
 * **`response_strategies/`**: Aquí es donde los participantes implementan sus estrategias de decisión.
   * `user_strategy.py`: Archivo principal donde debes programar tus estrategias personalizadas.
   * `default_strategy.py`: Estrategia por defecto que sirve como *fallback* si tu estrategia no toma una decisión.
+  * `strategy_parameters.py`: Contenedor centralizado para pesos, penalizaciones e hiperparámetros.
+  * `bayesian_tuner.py`: Optimizador bayesiano de parámetros usando Optuna.
+  * `parameter_tuner.py`: Sintonizador por búsqueda binaria de características.
 * **`simulation_model/`**: El núcleo de la lógica y clases del modelo de simulación.
 * **`maritime_data_context/`**: Clases y estructuras de datos que representan el contexto del negocio marítimo (barcos, puertos, rutas, reservas, etc.).
 * **`dashboard/`**: Aplicación web frontend (HTML/CSS/JS) y servidor ligero de desarrollo (`serve_gui.py`) para visualizar interactivamente las estadísticas de salida.
@@ -57,8 +60,7 @@ Se recomienda el uso de un entorno virtual de Python (`venv`) para evitar confli
 
         ```powershell
         python -m venv .venv
-        source .venv\Scripts\Activate.ps1
-        source .venv/Scripts/activate
+        .venv\Scripts\Activate.ps1
         ```
     * **Desactivar el entorno virtual:**
         Para salir/desactivar el entorno virtual en cualquier sistema, ejecuta:
@@ -67,11 +69,10 @@ Se recomienda el uso de un entorno virtual de Python (`venv`) para evitar confli
         ```
 
 3. **Instalar dependencias**:
-    El archivo `requirements.txt` incluye la instalación en modo editable de la librería local `o2despy` (`-e ./o2despy`), además de dependencias como `pandas`, `numpy`, `loguru` y `pytest`:
+    El archivo `requirements.txt` incluye la instalación en modo editable de la librería local `o2despy` (`-e ./o2despy`), además de dependencias externas como `pandas`, `numpy`, `loguru`, `pytest` y `optuna`:
 
     ```bash
     pip install -r requirements.txt
-    python -m pip install -r requirements.txt
     ```
 
 ---
@@ -87,7 +88,6 @@ python main.py
 ```
 
 Al hacerlo:
-
 * Se cargará el escenario configurado (por defecto, el escenario con disrupción).
 * Se realizará la fase de calentamiento (*warm-up* de 140 días por defecto) para llevar la red a un estado inicial realista.
 * Se ejecutará la simulación de medición (360 días por defecto), mostrando estadísticas consolidadas en consola cada cierto intervalo.
@@ -112,7 +112,6 @@ El objetivo del desafío es mejorar la eficiencia de la red (por ejemplo, reduci
 👉 **`response_strategies/user_strategy.py`**
 
 Ahí puedes implementar tu propia lógica para:
-
 * `select_vessel_for_berth`: Decidir qué barco entra al muelle primero en puertos congestionados.
 * `create_alternative_service_routes`: Crear rutas alternativas aprovechando los barcos y tramos existentes.
 * `assign_associated_bookings`: Definir la cadena de reservas inicial para un contenedor.
